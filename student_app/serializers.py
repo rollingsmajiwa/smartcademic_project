@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import StudyMaterial, Assignment, AssignmentSubmission, Exam
+from .models import StudyMaterial, Assignment, AssignmentSubmission, Exam, ExamSubmission
 
 class StudyMaterialSerializer(serializers.ModelSerializer):
     class Meta:
@@ -14,6 +14,12 @@ class AssignmentSerializer(serializers.ModelSerializer):
 class AssignmentSubmissionSerializer(serializers.ModelSerializer):
     class Meta:
         model = AssignmentSubmission
+        fields = '__all__'
+        read_only_fields = ['student', 'submitted_at', 'grade']
+
+class ExamSubmissionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ExamSubmission
         fields = '__all__'
         read_only_fields = ['student', 'submitted_at', 'grade']
 
