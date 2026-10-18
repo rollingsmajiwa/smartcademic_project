@@ -4,7 +4,7 @@ from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from .models import StudyMaterial, Assignment, AssignmentSubmission, Exam
 from .serializers import (StudyMaterialSerializer, AssignmentSerializer, AssignmentSubmissionSerializer, 
-    ExamSerializer
+    ExamSerializer, ExamSubmissionSerializer
 )
 
 # Get revision Materials
@@ -34,6 +34,17 @@ def submit_assignment(request):
         serializer.save(student=request.user)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+# submit exam
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def submit_exam(request):
+    serializer = ExamSubmissionSerializer(data=request.data)
+    if serializer.is_valid():
+        serializer.save(student=request.user)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
 
 
 # Get Active Exams
