@@ -23,3 +23,20 @@ def teacher_assignments_view(request):
             serializer.save()
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+@api_view(['GET', 'POST'])
+@parser_classes([MultiPartParser, FormParser])
+def teacher_exams_view(request):
+    if request.method == 'GET':
+        # List all timed exams created by teachers
+        exams = Exam_post.objects.all()
+        serializer = ExamSerializer(exams, many=True)
+        return Response(serializer.data)
+    
+    elif request.method == 'POST':
+        # Teacher creates a new timed exam 
+        serializer = ExamSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
