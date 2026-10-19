@@ -7,6 +7,7 @@ from .serializers import AssignmentSerializer, ExamSerializer, TeacherSerializer
 
 
 # Create your views here.
+
 @api_view(['GET', 'POST'])
 @parser_classes([MultiPartParser, FormParser])
 def teacher_assignments_view(request):
@@ -39,4 +40,25 @@ def teacher_exams_view(request):
         if serializer.is_valid():
             serializer.save()
             return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    # teacher profile view
+@api_view(['GET', 'PUT'])
+def teacher_profile(request, pk):
+    try:
+        teacher = Teacher.objects.get(pk=pk)
+    except Teacher.DoesNotExist:
+        return Response({'error': 'Teacher profile not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    if request.method == 'GET':
+        # Retrieve the specific teacher's profile
+        serializer = TeacherSerializer(teacher)
+        return Response(serializer.data)
+
+    elif request.method == 'PUT':
+        # Update the teacher's profile
+        serializer = TeacherSerializer(teacher, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)

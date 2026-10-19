@@ -1,2 +1,2 @@
 from django.urls import path
-from .views import te
+from .views import teacher_assignments_view, teacher_exams_view
