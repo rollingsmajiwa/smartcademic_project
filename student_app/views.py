@@ -8,7 +8,7 @@ from .serializers import (StudyMaterialSerializer, AssignmentSerializer, Assignm
     ExamSerializer, ExamSubmissionSerializer
 )
 
-# Get revision Materials
+# API view Get revision Materials
 class Study_material_list_view(APIView):
     permission_classes = [IsAuthenticated]
     def get(self, request, *args, **kwargs):
@@ -17,7 +17,7 @@ class Study_material_list_view(APIView):
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
-#  Get Assignments
+#  API view to Get Assignments
 class assignment_list_view(APIView):
     permission_classes = [IsAuthenticated]
     def get(self,request, *args, **kwargs):
@@ -26,7 +26,7 @@ class assignment_list_view(APIView):
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
-# Submit Assignment
+# API view to Submit Assignment
 class submit_assignment_view(APIView):  
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser] # for file upload
@@ -37,10 +37,11 @@ class submit_assignment_view(APIView):
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-# submit exam
+# API view to submit exam
 class submit_exam_view(APIView):
     permission_classes = [IsAuthenticated]
-    parser_classes = [MultiPartParser, FormParser] # for file uploads
+    parser_classes = [MultiPartParser, FormParser] # essential for file uploads
+    """Handles post exam request """
     def post(self, request, *args, **kwargs):
         serializer = ExamSubmissionSerializer(data=request.data)
         if serializer.is_valid():
@@ -50,7 +51,7 @@ class submit_exam_view(APIView):
 
 
 
-# Get Active Exams
+# API view to Get Active Exams
 class exam_list_view(APIView):
     permission_classes = [IsAuthenticated]
     def get(self, request, *args, **kwargs):

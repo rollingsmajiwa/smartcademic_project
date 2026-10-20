@@ -1,61 +1,79 @@
-from rest_framework.decorators import api_view, parser_classes
+from rest_framework.decorators import APIView
 from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.response import Response
 from rest_framework import status
+from rest_framework.permissions import IsAuthenticated
 from .models import Assignment_post, Exam_post, Teacher
 from .serializers import AssignmentSerializer, ExamSerializer, TeacherSerializer
 
 
 # Create your views here.
 
-@api_view(['GET', 'POST'])
-@parser_classes([MultiPartParser, FormParser])
-def teacher_assignments_view(request):
-    if request.method == 'GET':
+class teacher_assignments_view(APIView):
+    permission_classes = [IsAuthenticated]
+    parser_classes  = [MultiPartParser, FormParser]
+    """ API view to retrieve already submitted assignment or to create new assignment """
+
+    def get(self, request, *args, **kwargs):
         # List all assignments created by teachers
         assignments = Assignment_post.objects.all()
         serializer = AssignmentSerializer(assignments, many=True)
         return Response(serializer.data)
     
-    elif request.method == 'POST':
+  
         # Teacher creates a new assignment (including uploading the file)
+    def post(self, request, *args, **kwargs):
         serializer = AssignmentSerializer(data=request.data)
         if serializer.is_valid():
             serializer.save()
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-@api_view(['GET', 'POST'])
-@parser_classes([MultiPartParser, FormParser])
-def teacher_exams_view(request):
-    if request.method == 'GET':
+class teacher_exams_view(APIView):
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
+    """API view to retrieve already submitted exams or to create new exams"""
+
+    def get(self, request, *args, **kwargs):
+    
         # List all timed exams created by teachers
         exams = Exam_post.objects.all()
         serializer = ExamSerializer(exams, many=True)
         return Response(serializer.data)
     
-    elif request.method == 'POST':
+    
         # Teacher creates a new timed exam 
-        serializer = ExamSerializer(data=request.data)
-        if serializer.is_valid():
-            serializer.save()
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    def post(self, request, *args, **kwargs):
+            serializer = ExamSerializer(data=request.data)
+            if serializer.is_valid():
+                serializer.save()
+                return Response(serializer.data, status=status.HTTP_201_CREATED)
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     # teacher profile view
-@api_view(['GET', 'PUT'])
-def teacher_profile(request, pk):
-    try:
-        teacher = Teacher.objects.get(pk=pk)
-    except Teacher.DoesNotExist:
-        return Response({'error': 'Teacher profile not found'}, status=status.HTTP_404_NOT_FOUND)
+class teacher_profile_view(APIView):
+    permission_classes = [IsAuthenticated]
+    """API view to retrieve existing teacher profile or to create a new profile"""
+    def get(self, request, pk, *args, **kwargs):
+        try:
+            teacher = Teacher.objects.get(pk=pk)
+        except Teacher.DoesNotExist:
+            return Response({'error': 'Teacher profile not found'}, status=status.HTTP_404_NOT_FOUND)
 
-    if request.method == 'GET':
+    
         # Retrieve the specific teacher's profile
         serializer = TeacherSerializer(teacher)
-        return Response(serializer.data)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
-    elif request.method == 'PUT':
+    
+    def put(self, request, pk, *args, **kwargs):
+        try:
+            teacher = Teacher.objects.get(pk=pk)
+        except Teacher.DoesNotExist:
+            return Response({'error': 'Teacher profile not found'}, status=status.HTTP_404_NOT_FOUND)
+        
+            
+
         # Update the teacher's profile
         serializer = TeacherSerializer(teacher, data=request.data, partial=True)
         if serializer.is_valid():
