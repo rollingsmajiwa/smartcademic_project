@@ -9,7 +9,7 @@ from .serializers import AssignmentSerializer, ExamSerializer, TeacherSerializer
 
 # Create your views here.
 
-class teacher_assignments_view(APIView):
+class Teacher_assignments_view(APIView):
     permission_classes = [IsAuthenticated]
     parser_classes  = [MultiPartParser, FormParser]
     """ API view to retrieve already submitted assignment or to create new assignment """
@@ -29,7 +29,7 @@ class teacher_assignments_view(APIView):
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-class teacher_exams_view(APIView):
+class Teacher_exams_view(APIView):
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
     """API view to retrieve already submitted exams or to create new exams"""
@@ -51,7 +51,7 @@ class teacher_exams_view(APIView):
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     # teacher profile view
-class teacher_profile_view(APIView):
+class Teacher_profile_view(APIView):
     permission_classes = [IsAuthenticated]
     """API view to retrieve existing teacher profile or to create a new profile"""
     def get(self, request, pk, *args, **kwargs):

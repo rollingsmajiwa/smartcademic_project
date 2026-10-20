@@ -18,7 +18,7 @@ class Study_material_list_view(APIView):
 
 
 #  API view to Get Assignments
-class assignment_list_view(APIView):
+class Assignment_list_view(APIView):
     permission_classes = [IsAuthenticated]
     def get(self,request, *args, **kwargs):
         assignments = Assignment.objects.all().order_by('deadline')
@@ -27,7 +27,7 @@ class assignment_list_view(APIView):
 
 
 # API view to Submit Assignment
-class submit_assignment_view(APIView):  
+class Submit_assignment_view(APIView):  
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser] # for file upload
     def post(self, request, *args, **kwargs):
@@ -38,7 +38,7 @@ class submit_assignment_view(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 # API view to submit exam
-class submit_exam_view(APIView):
+class Submit_exam_view(APIView):
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser] # essential for file uploads
     """Handles post exam request """
@@ -52,7 +52,7 @@ class submit_exam_view(APIView):
 
 
 # API view to Get Active Exams
-class exam_list_view(APIView):
+class Exam_list_view(APIView):
     permission_classes = [IsAuthenticated]
     def get(self, request, *args, **kwargs):
         exams = Exam.objects.all()
