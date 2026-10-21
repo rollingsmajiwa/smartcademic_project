@@ -37,20 +37,26 @@ class TeacherAssignmentSubmissionView(APIView):
     permission_classes = [IsAuthenticated]
     def get(self, request, *args, **kwargs):
         # get loged-in teacher's profile
-        teacher = request.user.teacher_profile
-        submissions = AssignmentSubmission.objects.filter(assignment__teacher=teacher)
-        serializer = AssignmentSubmissionSerializer(submissions, many=True)
-        return Response(serializer.data, status=status.HTTP_200_OK)
+        try:
+            teacher = request.user.teacher_profile
+            submissions = AssignmentSubmission.objects.filter(assignment__teacher=teacher)
+            serializer = AssignmentSubmissionSerializer(submissions, many=True)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        except AttributeError:
+            return Response({"error": "This user has no teacher profile"}, status=status.HTTP_400_BAD_REQUEST)
 
 # model for teachers to view examss submitted by students
 class TeacherExamSubmissionView(APIView):
     permission_classes = [IsAuthenticated]
     def get(self, request, *args, **kwargs):
         # get loged-in teacher's profile
-        teacher = request.user.teacher_profile
-        submissions = ExamSubmission.objects.filter(exam__teacher=teacher)
-        serializer = ExamSubmissionSerializer(submissions, many=True)
-        return Response(serializer.data, status=status.HTTP_200_OK)
+        try:
+            teacher = request.user.teacher_profile
+            submissions = ExamSubmission.objects.filter(exam__teacher=teacher)
+            serializer = ExamSubmissionSerializer(submissions, many=True)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        except AttributeError:
+            Response({"error": "This user has no teacher profile"}, status=status.HTTP_400_BAD_REQUEST)
 
 class Teacher_exams_view(APIView):
     permission_classes = [IsAuthenticated]
