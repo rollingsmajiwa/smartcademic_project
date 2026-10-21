@@ -6,6 +6,9 @@ from rest_framework.permissions import IsAuthenticated
 from .models import Assignment_post, Exam_post, Teacher
 from .serializers import AssignmentSerializer, ExamSerializer, TeacherSerializer
 
+from student_app.models import AssignmentSubmission, ExamSubmission
+from student_app.serializers import AssignmentSubmissionSerializer, ExamSubmissionSerializer
+
 
 # Create your views here.
 
@@ -28,6 +31,26 @@ class Teacher_assignments_view(APIView):
             serializer.save()
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+# model for teachers to view assginments submitted by students
+class TeacherAssignmentSubmissionView(APIView):
+    permission_classes = [IsAuthenticated]
+    def get(self, request, *args, **kwargs):
+        # get loged-in teacher's profile
+        teacher = request.user.teacher_profile
+        submissions = AssignmentSubmission.objects.filter(assignment__teacher=teacher)
+        serializer = AssignmentSubmissionSerializer(submissions, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+# model for teachers to view examss submitted by students
+class TeacherExamSubmissionView(APIView):
+    permission_classes = [IsAuthenticated]
+    def get(self, request, *args, **kwargs):
+        # get loged-in teacher's profile
+        teacher = request.user.teacher_profile
+        submissions = ExamSubmission.objects.filter(exam__teacher=teacher)
+        serializer = ExamSubmissionSerializer(submissions, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
 class Teacher_exams_view(APIView):
     permission_classes = [IsAuthenticated]
