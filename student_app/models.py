@@ -1,5 +1,6 @@
 from django.db import models
 from django.contrib.auth.models import User
+from teachers_app.models import Assignment_post
 
 # models to store study notes, assignments, assignment submissions, and exams.
 class StudyMaterial(models.Model):
@@ -16,7 +17,7 @@ class Assignment(models.Model):
     deadline = models.DateTimeField()
 
 class AssignmentSubmission(models.Model):
-    assignment = models.ForeignKey(Assignment, on_delete=models.CASCADE, related_name='submissions')
+    assignment = models.ForeignKey(Assignment_post, on_delete=models.CASCADE, related_name='submissions')
     student = models.ForeignKey(User, on_delete=models.CASCADE)
     file = models.FileField(upload_to='submissions/')
     submitted_at = models.DateTimeField(auto_now_add=True)
