@@ -56,7 +56,7 @@ class TeacherExamSubmissionView(APIView):
             serializer = ExamSubmissionSerializer(submissions, many=True)
             return Response(serializer.data, status=status.HTTP_200_OK)
         except AttributeError:
-            Response({"error": "This user has no teacher profile"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"error": "This user has no teacher profile"}, status=status.HTTP_400_BAD_REQUEST)
 
 class Teacher_exams_view(APIView):
     permission_classes = [IsAuthenticated]
