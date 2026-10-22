@@ -4,7 +4,7 @@ from rest_framework.response import Response
 from rest_framework import status, permissions, generics
 from rest_framework.permissions import IsAuthenticated
 from .models import Assignment_post, Exam_post, Teacher
-from .serializers import AssignmentSerializer, ExamSerializer, TeacherSerializer
+from .serializers import AssignmentSerializer, ExamSerializer, TeacherSerializer, AssignmentGradeSerializer,ExamGradeSerializer 
 
 from student_app.models import AssignmentSubmission, ExamSubmission
 from student_app.serializers import AssignmentSubmissionSerializer, ExamSubmissionSerializer
@@ -61,7 +61,7 @@ class TeacherExamSubmissionView(APIView):
 # view for teachers to grade submitted assignment
 class AssignmentGradeSubmissionView(generics.UpdateAPIView):
     queryset = AssignmentSubmission.objects.all()
-    serializer_class = AssignmentSubmissionSerializer
+    serializer_class = AssignmentGradeSerializer
     permission_classes = [permissions.IsAuthenticated]
 
     # only teachers can grade
@@ -72,7 +72,7 @@ class AssignmentGradeSubmissionView(generics.UpdateAPIView):
 # view for teachers to grade submitted exams
 class ExamGradeSubmissionView(generics.UpdateAPIView):
     queryset = ExamSubmission.objects.all()
-    serializer_class = ExamSubmissionSerializer
+    serializer_class = ExamGradeSerializer
     permission_classes = [permissions.IsAuthenticated]
 
     # only teachers can grade

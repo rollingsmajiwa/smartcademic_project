@@ -1,12 +1,13 @@
 from rest_framework.decorators import APIView
 from rest_framework.response import Response
-from rest_framework import status
+from rest_framework import status, generics, permissions
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.parsers import MultiPartParser, FormParser
-from .models import StudyMaterial, Assignment, AssignmentSubmission, Exam
+from .models import StudyMaterial, Assignment, AssignmentSubmission, Exam, ExamSubmission
 from .serializers import (StudyMaterialSerializer, AssignmentSerializer, AssignmentSubmissionSerializer, 
-    ExamSerializer, ExamSubmissionSerializer
+    ExamSerializer, ExamSubmissionSerializer, StudentsAssignmentSubmissionSerializer, StudentExamSubmissionSerializer
 )
+
 
 # API view Get revision Materials
 class Study_material_list_view(APIView):
@@ -58,3 +59,18 @@ class Exam_list_view(APIView):
         exams = Exam.objects.all()
         serializer = ExamSerializer(exams, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
+
+# API view to get results of submitted assignment
+class StudentsSubmittedAssignmentView(generics.ListAPIView):
+    serializer_class = StudentsAssignmentSubmissionSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        return AssignmentSubmission.objects.filter(student=self.request.user)
+# API view to get results of submitted exam
+class StudentsSubmittedExamView(generics.ListAPIView):
+    serializer_class = ExamSubmissionSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        return ExamSubmission.objects.filter(student=self.request.user)

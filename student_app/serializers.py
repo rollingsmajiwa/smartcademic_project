@@ -27,3 +27,14 @@ class ExamSerializer(serializers.ModelSerializer):
     class Meta:
         model = Exam
         fields = '__all__'
+class StudentsAssignmentSubmissionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AssignmentSubmission
+        fields = ['id', 'assignment', 'file', 'submitted_at', 'grade']
+        read_only_fields = ['grade']
+
+class StudentExamSubmissionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ExamSubmission
+        fields = ['id', 'exam', 'file', 'submitted_at', 'grade']
+        read_only_fields = ['grade']
