@@ -1,7 +1,7 @@
 from rest_framework.decorators import APIView
 from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.response import Response
-from rest_framework import status
+from rest_framework import status, permissions, generics
 from rest_framework.permissions import IsAuthenticated
 from .models import Assignment_post, Exam_post, Teacher
 from .serializers import AssignmentSerializer, ExamSerializer, TeacherSerializer
@@ -32,7 +32,7 @@ class Teacher_assignments_view(APIView):
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-# model for teachers to view assginments submitted by students
+# teachers to view assginments submitted by students
 class TeacherAssignmentSubmissionView(APIView):
     permission_classes = [IsAuthenticated]
     def get(self, request, *args, **kwargs):
@@ -45,7 +45,7 @@ class TeacherAssignmentSubmissionView(APIView):
         except AttributeError:
             return Response({"error": "This user has no teacher profile"}, status=status.HTTP_400_BAD_REQUEST)
 
-# model for teachers to view examss submitted by students
+# teachers to view examss submitted by students
 class TeacherExamSubmissionView(APIView):
     permission_classes = [IsAuthenticated]
     def get(self, request, *args, **kwargs):
@@ -57,6 +57,17 @@ class TeacherExamSubmissionView(APIView):
             return Response(serializer.data, status=status.HTTP_200_OK)
         except AttributeError:
             return Response({"error": "This user has no teacher profile"}, status=status.HTTP_400_BAD_REQUEST)
+
+# view for teachers to grade submitted assignment
+class GradeSubmissionView(generics.UpdateAPIView):
+    queryset = AssignmentSubmission.objects.all()
+    serializer_class = AssignmentSubmissionSerializer
+    pagination_class = [permissions.IsAuthenticated]
+
+    # only teachers can grade
+    def perform_updates(self, serializer):
+        # save the updated grade
+        serializer.save()
 
 class Teacher_exams_view(APIView):
     permission_classes = [IsAuthenticated]
