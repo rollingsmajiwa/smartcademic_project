@@ -7,6 +7,6 @@ urlpatterns = [
     path('profile/<int:pk>/', Teacher_profile_view.as_view(), name="teacher-profile"),
     path('assignment-submissions/', TeacherAssignmentSubmissionView.as_view(), name='teacher-assignment-submissions'),
     path('exam-submissions/', TeacherExamSubmissionView.as_view(), name='teacher-exam-submissions'),
-    path('teacher/submissions/<int:pk>/grade/',AssignmentGradeSubmissionView.as_view(), name='assignment_grade_submission' ),
-    path('teacher/exams/submissions/<int:pk>/grade/', ExamGradeSubmissionView.as_view(), name='exam_grade_submission')
+    path('submissions/<int:pk>/grade/',AssignmentGradeSubmissionView.as_view(), name='assignment_grade_submission' ),
+    path('exams/submissions/<int:pk>/grade/', ExamGradeSubmissionView.as_view(), name='exam_grade_submission')
 ]
