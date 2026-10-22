@@ -59,9 +59,20 @@ class TeacherExamSubmissionView(APIView):
             return Response({"error": "This user has no teacher profile"}, status=status.HTTP_400_BAD_REQUEST)
 
 # view for teachers to grade submitted assignment
-class GradeSubmissionView(generics.UpdateAPIView):
+class AssignmentGradeSubmissionView(generics.UpdateAPIView):
     queryset = AssignmentSubmission.objects.all()
     serializer_class = AssignmentSubmissionSerializer
+    pagination_class = [permissions.IsAuthenticated]
+
+    # only teachers can grade
+    def perform_updates(self, serializer):
+        # save the updated grade
+        serializer.save()
+
+# view for teachers to grade submitted exams
+class ExamGradeSubmissionView(generics.UpdateAPIView):
+    queryset = ExamSubmission.objects.all()
+    serializer_class = ExamSubmissionSerializer
     pagination_class = [permissions.IsAuthenticated]
 
     # only teachers can grade
