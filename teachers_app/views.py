@@ -62,10 +62,10 @@ class TeacherExamSubmissionView(APIView):
 class AssignmentGradeSubmissionView(generics.UpdateAPIView):
     queryset = AssignmentSubmission.objects.all()
     serializer_class = AssignmentSubmissionSerializer
-    pagination_class = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated]
 
     # only teachers can grade
-    def perform_updates(self, serializer):
+    def perform_update(self, serializer):
         # save the updated grade
         serializer.save()
 
@@ -73,10 +73,10 @@ class AssignmentGradeSubmissionView(generics.UpdateAPIView):
 class ExamGradeSubmissionView(generics.UpdateAPIView):
     queryset = ExamSubmission.objects.all()
     serializer_class = ExamSubmissionSerializer
-    pagination_class = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated]
 
     # only teachers can grade
-    def perform_updates(self, serializer):
+    def perform_update(self, serializer):
         # save the updated grade
         serializer.save()
 
