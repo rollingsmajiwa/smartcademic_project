@@ -22,6 +22,8 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/students/', include('student_app.urls')),
     path('api/teachers/', include('teachers_app.urls')),
+    path('api/admin/', include('admin_app.urls')),
     path('api-token-auth', obtain_auth_token),
+    
 
 ]
