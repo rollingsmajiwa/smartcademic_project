@@ -193,7 +193,7 @@ class GeoFenceAttendanceView(APIView):
             date=today
         )
 
-        current_time = timezone.now()
+        current_time = timezone.localtime(timezone.now())
 
         if status_direction.lower() == 'in':
             if attendance.check_in_time:
