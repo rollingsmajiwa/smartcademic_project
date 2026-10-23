@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Teacher, Assignment_post, Exam_post
+from .models import Teacher, Assignment_post, Exam_post, TeacherAttendance
 from student_app.models import AssignmentSubmission, ExamSubmission
 
 class TeacherSerializer(serializers.ModelSerializer):
@@ -27,3 +27,10 @@ class ExamGradeSerializer(serializers.ModelSerializer):
     class Meta:
         model = ExamSubmission
         fields = ['grade']
+class TeacherAttendanceSerializer(serializers.ModelSerializer):
+    """Serializer to view teacher attendance details and times"""
+    teacher_name = serializers.CharField(source='teacher.name', read_only=True)
+
+    class Meta:
+        model = TeacherAttendance
+        fields = ['id', 'teacher_name', 'date', 'check_in_time', 'check_out_time', 'status']
