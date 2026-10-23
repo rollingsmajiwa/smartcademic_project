@@ -24,7 +24,7 @@ class StudentProfile(models.Model):
 
 
 class TeacherProfile(models.Model):
-    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="teacher_profile")
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="admin_teacher_profile")
     tsc_number = models.CharField(max_length=50, unique=True)
     department = models.CharField(max_length=100)
 
