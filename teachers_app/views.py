@@ -147,7 +147,7 @@ class GeoFenceAttendanceView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        teacher_tsc_id = request.data.get('teacherId')
+        teacher_tsc_id = request.data.get('tsc_number')
         status_direction = request.data.get('direction')  # e.g., 'in' or 'out'
         user_lat = request.data.get('latitude')
         user_lon = request.data.get('longitude')
@@ -166,8 +166,8 @@ class GeoFenceAttendanceView(APIView):
             )
 
         try:
-            # Find the teacher using their custom teacher ID (TSC Number)
-            teacher = Teacher.objects.get(teacher_id=teacher_tsc_id)
+            # Find the teacher using their TSC Number
+            teacher = Teacher.objects.get(tsc_number=teacher_tsc_id)
         except Teacher.DoesNotExist:
             return Response(
                 {"error": "Teacher not found with this ID!"}, 

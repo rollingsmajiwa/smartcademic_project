@@ -5,7 +5,7 @@ from .models import Teacher, Assignment_post, Exam_post, TeacherAttendance
 # Register your models here.
 @admin.register(Teacher)
 class TeacherAdmin(admin.ModelAdmin):
-    list_display = ('id','name', 'teacher_id', 'department')
+    list_display = ('id','name', 'tsc_number', 'department')
 
 @admin.register(Assignment_post)
 class AssignmentAdmin(admin.ModelAdmin):

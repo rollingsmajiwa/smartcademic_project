@@ -5,7 +5,7 @@ from django.contrib.auth.models import User
 
 class Teacher(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='teacher_profile')
-    teacher_id = models.CharField(max_length=50, unique=True)
+    tsc_number = models.CharField(max_length=50, unique=True)
     department = models.CharField(max_length=100)
     name = models.CharField(max_length=100, null=True, blank=True)
     def __str__(self):
