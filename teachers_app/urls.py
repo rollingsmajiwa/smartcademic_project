@@ -1,5 +1,5 @@
 from django.urls import path
-from .views import Teacher_assignments_view, Teacher_exams_view, Teacher_profile_view, TeacherAssignmentSubmissionView, TeacherExamSubmissionView, AssignmentGradeSubmissionView, ExamGradeSubmissionView
+from .views import Teacher_assignments_view, Teacher_exams_view, Teacher_profile_view, TeacherAssignmentSubmissionView, TeacherExamSubmissionView, AssignmentGradeSubmissionView, ExamGradeSubmissionView, GeoFenceAttendanceView
 
 urlpatterns = [
     path('assignment/', Teacher_assignments_view.as_view(), name="teacher-assignment"),
@@ -8,5 +8,6 @@ urlpatterns = [
     path('assignment-submissions/', TeacherAssignmentSubmissionView.as_view(), name='teacher-assignment-submissions'),
     path('exam-submissions/', TeacherExamSubmissionView.as_view(), name='teacher-exam-submissions'),
     path('submissions/<int:pk>/grade/',AssignmentGradeSubmissionView.as_view(), name='assignment_grade_submission' ),
-    path('exams/submissions/<int:pk>/grade/', ExamGradeSubmissionView.as_view(), name='exam_grade_submission')
+    path('exams/submissions/<int:pk>/grade/', ExamGradeSubmissionView.as_view(), name='exam_grade_submission'),
+    path('attendance/', GeoFenceAttendanceView.as_view(), name='geofence-attendance'),
 ]
