@@ -1,6 +1,10 @@
 from rest_framework import serializers
 from django.contrib.auth.models import User
 from .models import Classroom, StudentProfile, TeacherProfile
+from student_app.models import (Assignment_post, 
+    Exam_post, AssignmentSubmission, ExamSubmission
+)
+from teachers_app.models import TeacherAttendance
 
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
@@ -36,4 +40,28 @@ class TeacherProfileSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = TeacherProfile
+        fields = '__all__'
+class TeacherAttendanceSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = TeacherAttendance
+        fields = '__all__'
+
+class AssignmentPostSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Assignment_post
+        fields = '__all__'
+
+class ExamPostSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Exam_post
+        fields = '__all__'
+
+class AssignmentSubmissionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AssignmentSubmission
+        fields = '__all__'
+
+class ExamSubmissionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ExamSubmission
         fields = '__all__'
