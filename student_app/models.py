@@ -2,6 +2,7 @@ from django.db import models
 from django.contrib.auth.models import User
 from teachers_app.models import Assignment_post, Exam_post
 
+
 # models to store study notes, assignments, assignment submissions, and exams.
 class StudyMaterial(models.Model):
     title = models.CharField(max_length=255)
@@ -36,3 +37,8 @@ class ExamSubmission(models.Model):
     file = models.FileField(upload_to='exam_submission/', blank=True, null=True) # students can upload exams inform of files
     submitted_at = models.DateTimeField(auto_now_add=True)
     score = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
+
+    is_auto_submitted = models.BooleanField(default=False) # for countdown timers
+    def __str__(self):
+        status = "Auto-Submission" if self.is_auto_submitted else "Manual"
+        return f"Submission: {self.exam.title} by {self.student.username} ({status})"

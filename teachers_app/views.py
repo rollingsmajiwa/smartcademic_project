@@ -4,7 +4,7 @@ from rest_framework.response import Response
 from rest_framework import status, permissions, generics
 from rest_framework.permissions import IsAuthenticated
 from .models import Assignment_post, Exam_post, Teacher, TeacherAttendance
-from .serializers import AssignmentSerializer, ExamSerializer, TeacherSerializer, AssignmentGradeSerializer,ExamGradeSerializer, TeacherAttendanceSerializer 
+from .serializers import AssignmentSerializer, ExamPostSerializer, TeacherSerializer, AssignmentGradeSerializer,ExamGradeSerializer, TeacherAttendanceSerializer 
 
 from student_app.models import AssignmentSubmission, ExamSubmission
 from student_app.serializers import AssignmentSubmissionSerializer, ExamSubmissionSerializer
@@ -92,13 +92,13 @@ class Teacher_exams_view(APIView):
     
         # List all timed exams created by teachers
         exams = Exam_post.objects.all()
-        serializer = ExamSerializer(exams, many=True)
+        serializer = ExamPostSerializer(exams, many=True)
         return Response(serializer.data)
     
     
         # Teacher creates a new timed exam 
     def post(self, request, *args, **kwargs):
-            serializer = ExamSerializer(data=request.data)
+            serializer = ExamPostSerializer(data=request.data)
             if serializer.is_valid():
                 serializer.save()
                 return Response(serializer.data, status=status.HTTP_201_CREATED)

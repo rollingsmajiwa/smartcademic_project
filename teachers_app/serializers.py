@@ -13,7 +13,7 @@ class AssignmentSerializer(serializers.ModelSerializer):
         model = Assignment_post
         fields = '__all__'
 
-class ExamSerializer(serializers.ModelSerializer):
+class ExamPostSerializer(serializers.ModelSerializer):
     class Meta:
         model = Exam_post
         fields = '__all__'

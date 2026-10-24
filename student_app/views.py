@@ -3,6 +3,8 @@ from rest_framework.response import Response
 from rest_framework import status, generics, permissions
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.parsers import MultiPartParser, FormParser
+from teachers_app.models import Exam_post
+from teachers_app.serializers import ExamPostSerializer
 from .models import StudyMaterial, Assignment, AssignmentSubmission, Exam, ExamSubmission
 from .serializers import (StudyMaterialSerializer, AssignmentSerializer, AssignmentSubmissionSerializer, 
     ExamSerializer, ExamSubmissionSerializer, StudentsAssignmentSubmissionSerializer, StudentExamSubmissionSerializer
@@ -56,8 +58,8 @@ class Submit_exam_view(APIView):
 class Exam_list_view(APIView):
     permission_classes = [IsAuthenticated]
     def get(self, request, *args, **kwargs):
-        exams = Exam.objects.all()
-        serializer = ExamSerializer(exams, many=True)
+        exams = Exam_post.objects.all()
+        serializer = ExamPostSerializer(exams, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 # API view to get results of submitted assignment
