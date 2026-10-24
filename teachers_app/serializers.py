@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Teacher, Assignment_post, Exam_post, TeacherAttendance
+from .models import Teacher, Assignment_post, Exam_post, TeacherAttendance, StudentMark
 from student_app.models import AssignmentSubmission, ExamSubmission
 
 class TeacherSerializer(serializers.ModelSerializer):
@@ -34,3 +34,9 @@ class TeacherAttendanceSerializer(serializers.ModelSerializer):
     class Meta:
         model = TeacherAttendance
         fields = ['id', 'teacher_name', 'date', 'check_in_time', 'check_out_time', 'status']
+
+class StudentMarkSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = StudentMark
+        fields = ['id', 'student', 'subject', 'marks', 'term', 'year', 'class_name', 'teacher', 'updated_at']
+        read_only_fields = ['teacher', 'updated_at', 'year']
