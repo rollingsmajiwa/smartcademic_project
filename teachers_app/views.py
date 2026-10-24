@@ -3,9 +3,10 @@ from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.response import Response
 from rest_framework import status, permissions, generics
 from rest_framework.permissions import IsAuthenticated
-from .models import Assignment_post, Exam_post, Teacher, TeacherAttendance
-from .serializers import AssignmentSerializer, ExamPostSerializer, TeacherSerializer, AssignmentGradeSerializer,ExamGradeSerializer, TeacherAttendanceSerializer 
-
+from .models import Assignment_post, Exam_post, Teacher, TeacherAttendance, StudentMark
+from .serializers import AssignmentSerializer, ExamPostSerializer, TeacherSerializer, AssignmentGradeSerializer,ExamGradeSerializer, TeacherAttendanceSerializer, StudentMarkSerializer 
+from admin_app.models import StudentProfile
+from django.db.models import Avg
 from student_app.models import AssignmentSubmission, ExamSubmission
 from student_app.serializers import AssignmentSubmissionSerializer, ExamSubmissionSerializer
 
@@ -211,4 +212,134 @@ class GeoFenceAttendanceView(APIView):
             "success": True,
             "message": f"Success! Clocked {status_direction}",
             "time": current_time
+        }, status=status.HTTP_200_OK)
+
+    # student mark view
+
+class ClassGradeTableView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, class_name, term):
+        students = StudentProfile.objects.filter(classroom__name=class_name)
+        
+        subjects = [
+            {"key": "maths", "label": "Maths"},
+            {"key": "kiswahili", "label": "Kiswahili"},
+            {"key": "english", "label": "English"},
+            {"key": "pretechnical_studies", "label": "Pre-Technical Studies"},
+            {"key": "integrated_science", "label": "Integrated Science"},
+            {"key": "social_studies", "label": "Social Studies"},
+            {"key": "cre", "label": "CRE"},
+            {"key": "arts", "label": "Arts"},
+            {"key": "agriculture", "label": "Agriculture"}
+        ]
+
+        table_data = []
+        for student in students:
+            student_name = student.user.get_full_name() or student.user.username
+            marks_qs = StudentMark.objects.filter(
+                student=student, class_name=class_name, term=term, year=2026
+            )
+            marks_dict = {m.subject: float(m.marks) for m in marks_qs}
+
+            student_row = {
+                "student_id": student.id,
+                "admission_number": student.admission_number,
+                "student_name": student_name,
+                "marks": {sub["key"]: marks_dict.get(sub["key"], 0.0) for sub in subjects}
+            }
+            table_data.append(student_row)
+
+        return Response({
+            "class_name": class_name,
+            "term": term,
+            "year": 2026,
+            "subjects": subjects,
+            "students_table": table_data
+        }, status=status.HTTP_200_OK)
+
+
+class BulkMarkSaveView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        data = request.data
+        class_name = data.get('class_name')
+        term = data.get('term')
+        entries = data.get('entries', []) # List of {student_id, subject, marks}
+        
+        teacher = getattr(request.user, 'teacher_profile', None)
+
+        for entry in entries:
+            StudentMark.objects.update_or_create(
+                student_id=entry.get('student_id'),
+                subject=entry.get('subject'),
+                class_name=class_name,
+                term=term,
+                year=2026,
+                defaults={
+                    'marks': entry.get('marks', 0.0), 
+                    'teacher': teacher
+                }
+            )
+
+        return Response({"detail": "Marks saved successfully!"}, status=status.HTTP_200_OK)
+
+
+class ClassAnalysisView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, class_name, term):
+        marks_qs = StudentMark.objects.filter(class_name=class_name, term=term, year=2026)
+        
+        if not marks_qs.exists():
+            return Response({"detail": "No marks found for this grade and term."}, status=status.HTTP_404_NOT_FOUND)
+
+        subjects = [
+            'maths', 'kiswahili', 'english', 'pretechnical_studies', 
+            'integrated_science', 'social_studies', 'cre', 'arts', 'agriculture'
+        ]
+
+        students_data = {}
+        student_records = marks_qs.select_related('student', 'student__user')
+
+        for record in student_records:
+            student_name = record.student.user.get_full_name() or record.student.user.username
+            if student_name not in students_data:
+                students_data[student_name] = {
+                    "admission_number": record.student.admission_number,
+                    "name": student_name,
+                    "subjects": {sub: 0.0 for sub in subjects},
+                    "total_marks": 0.0
+                }
+            students_data[student_name]["subjects"][record.subject] = float(record.marks)
+            students_data[student_name]["total_marks"] += float(record.marks)
+
+        student_list = list(students_data.values())
+        
+        # Sort by total marks in descending order so rank 1 is highest scorer
+        student_list = sorted(student_list, key=lambda x: x["total_marks"], reverse=True)
+
+        # Assign rankings
+        for rank, student in enumerate(student_list, start=1):
+            student["rank"] = rank
+
+        # Calculate Subject Means
+        subject_means = {}
+        for sub in subjects:
+            avg_score = marks_qs.filter(subject=sub).aggregate(Avg('marks'))['marks__avg']
+            subject_means[sub] = round(float(avg_score), 2) if avg_score else 0.0
+
+        # Calculate Total Class Mean
+        class_total_avg = marks_qs.aggregate(Avg('marks'))['marks__avg']
+        total_class_mean = round(float(class_total_avg), 2) if class_total_avg else 0.0
+
+        return Response({
+            "class_name": class_name,
+            "term": term,
+            "year": 2026,
+            "subject_columns": subjects,
+            "student_performance_table": student_list,
+            "subject_means": subject_means,
+            "total_class_mean": total_class_mean
         }, status=status.HTTP_200_OK)
