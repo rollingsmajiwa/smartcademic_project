@@ -21,8 +21,11 @@ from rest_framework_simplejwt.views import (
     TokenObtainPairView,
     TokenRefreshView,
 )
+from accounts.serializers import CustomTokenObtainPairSerializer
 
 
+class CustomTokenObtainPairView(TokenObtainPairView):
+    serializer_class = CustomTokenObtainPairSerializer
 
 urlpatterns = [
     path('admin/', admin.site.urls),
@@ -30,11 +33,13 @@ urlpatterns = [
     path('api/teachers/', include('teachers_app.urls')),
     path('api/admin/', include('admin_app.urls')),
     path('api-token-auth', obtain_auth_token),
-    # Sign Up Endpoint (from accounts app)
-    path('', include('accounts.urls')), 
-    # Sign In Endpoints (handles checking credentials and giving tokens)
-    path('api/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
+    # SimpleJWT endpoints
+    path('api/token/', CustomTokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     
+    # Portal feature routes
+    path('api/students/', include('student_app.urls')),
+    path('api/teachers/', include('teachers_app.urls')),
+    path('api/admin/', include('admin_app.urls')),
 
 ]

@@ -1,15 +1,30 @@
-from rest_framework import status
+from rest_framework import status, generics, permissions
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from rest_framework.permissions import AllowAny
-from .serializers import RegisterSerializer
+from django.contrib.auth.models import User
+from .serializers import RegisterSerializer, AdminUserManagementSerializer
+from .models import UserProfile
 
-class RegisterView(APIView):
-    permission_classes = [AllowAny]
+# Custom Permission to restrict views to Admin only
+class IsAdminUserRole(permissions.BasePermission):
+    def has_permission(self, request, view):
+        return request.user.is_authenticated and hasattr(request.user, 'profile') and request.user.profile.role == 'admin'
 
-    def post(self, request):
-        serializer = RegisterSerializer(data=request.data)
-        if serializer.is_valid():
-            serializer.save()
-            return Response({"message": "User registered successfully!"}, status=status.HTTP_201_CREATED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+# Public Registration Endpoint
+class RegisterView(generics.CreateAPIView):
+    queryset = User.objects.all()
+    serializer_class = RegisterSerializer
+    permission_classes = [permissions.AllowAny]
+
+# Admin Endpoint: List Users & Add User
+class AdminUserListCreateView(generics.ListCreateAPIView):
+    queryset = User.objects.all().select_related('profile')
+    serializer_class = AdminUserManagementSerializer
+    permission_classes = [IsAdminUserRole]
+
+# Admin Endpoint: Delete User by ID
+class AdminUserDeleteView(generics.DestroyAPIView):
+    queryset = User.objects.all()
+    serializer_class = AdminUserManagementSerializer
+    permission_classes = [IsAdminUserRole]
+    lookup_field = 'id'
