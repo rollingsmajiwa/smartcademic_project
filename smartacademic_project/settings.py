@@ -42,14 +42,22 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'accounts',
     'student_app',
     'teachers_app',
     'admin_app',
     'rest_framework',
+    'rest_framework_simplejwt',
+    'corsheaders',
     'rest_framework.authtoken',
 ]
 
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:5173", # Matches Vite React dev server port
+]
+
 MIDDLEWARE = [
+    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -139,6 +147,7 @@ MAILERS = {
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES' : [
         'rest_framework.authentication.TokenAuthentication',
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
     ],
 }
 
