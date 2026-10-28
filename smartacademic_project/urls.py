@@ -37,9 +37,5 @@ urlpatterns = [
     path('api/token/', CustomTokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     
-    # Portal feature routes
-    path('api/students/', include('student_app.urls')),
-    path('api/teachers/', include('teachers_app.urls')),
-    path('api/admin/', include('admin_app.urls')),
 
 ]
