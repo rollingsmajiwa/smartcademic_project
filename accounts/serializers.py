@@ -25,10 +25,14 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
     @classmethod
     def get_token(cls, user):
         token = super().get_token(user)
+        
+        # Safely fetch role from UserProfile
         try:
-            token['role'] = user.profile.role
+            profile = UserProfile.objects.get(user=user)
+            token['role'] = profile.role
         except UserProfile.DoesNotExist:
-            token['role'] = 'student'
+            token['role'] = 'student'  # Fallback only if no profile exists
+            
         token['username'] = user.username
         return token
 
