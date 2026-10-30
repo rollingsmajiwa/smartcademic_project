@@ -53,7 +53,7 @@ INSTALLED_APPS = [
 ]
 
 CORS_ALLOWED_ORIGINS = [
-    "http://localhost:5175", # Matches Vite React dev server port
+    "http://localhost:5173", # Matches Vite React dev server port
 ]
 
 MIDDLEWARE = [
