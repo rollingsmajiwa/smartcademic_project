@@ -5,7 +5,7 @@ from .views import Teacher_assignments_view, Teacher_exams_view, Teacher_profile
 urlpatterns = [
     path('assignment/', Teacher_assignments_view.as_view(), name="teacher-assignment"),
     path('exam/', Teacher_exams_view.as_view(), name="teacher-exam"),
-    path('api/teachers/overview/', TeacherOverviewAPIView.as_view(), name='teacher-overview'),
+    path('overview/', TeacherOverviewAPIView.as_view(), name='teacher-overview'),
     path('profile/<int:pk>/', Teacher_profile_view.as_view(), name="teacher-profile"),
     path('assignment-submissions/', TeacherAssignmentSubmissionView.as_view(), name='teacher-assignment-submissions'),
     path('exam-submissions/', TeacherExamSubmissionView.as_view(), name='teacher-exam-submissions'),
@@ -20,5 +20,5 @@ urlpatterns = [
     
     # Final analysis report with rankings, subject means, and class mean
     path('grades/analysis/<str:class_name>/<str:term>/', ClassAnalysisView.as_view(), name='class-analysis-report'),
-    path('teachers/list/', TeacherListView.as_view(), name='teacher-list'),
+    path('list/', TeacherListView.as_view(), name='teacher-list'),
 ]

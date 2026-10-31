@@ -28,24 +28,49 @@ class TeacherOverviewAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        teacher = request.user
-        
-        # Filter content posted by this teacher
-        assignments = Assignment_post.objects.filter(teacher=teacher)
-        exams = Exam_post.objects.filter(teacher=teacher)
-        
-        # Get submissions tied to the teacher's assignments/exams
-        assignment_submissions = AssignmentSubmission.objects.filter(assignment__in=assignments)
-        exam_submissions = ExamSubmission.objects.filter(exam__in=exams)
-        
+        try:
+            teacher_profile = Teacher.objects.get(user=request.user)
+        except Teacher.DoesNotExist:
+            if request.user.is_staff or request.user.is_superuser:
+                assignments = Assignment_post.objects.all()
+                exams = Exam_post.objects.all() if 'Exam_post' in globals() else Assignment_post.objects.none()
+                assignment_subs = AssignmentSubmission.objects.filter(assignment__in=assignments)
+                exam_subs = ExamSubmission.objects.filter(exam__in=exams) if 'ExamSubmission' in globals() else AssignmentSubmission.objects.none()
+                
+                pending_assignments = assignment_subs.filter(grade__isnull=True).count()
+                pending_exams = exam_subs.filter(score__isnull=True).count() if 'ExamSubmission' in globals() else 0
+
+                return Response({
+                    "total_assignments_posted": assignments.count(),
+                    "assignments_posted": assignments.count(),
+                    "total_exams_created": exams.count(),
+                    "exams_created": exams.count(),
+                    "total_submissions_received": assignment_subs.count() + exam_subs.count(),
+                    "submissions_received": assignment_subs.count() + exam_subs.count(),
+                    "pending_grades": pending_assignments + pending_exams
+                })
+            else:
+                teacher_profile = Teacher.objects.create(user=request.user)
+
+        assignments = Assignment_post.objects.filter(teacher=teacher_profile)
+        exams = Exam_post.objects.filter(teacher=teacher_profile) if 'Exam_post' in globals() else Assignment_post.objects.none()
+
+        assignment_subs = AssignmentSubmission.objects.filter(assignment__in=assignments)
+        exam_subs = ExamSubmission.objects.filter(exam__in=exams) if 'ExamSubmission' in globals() else AssignmentSubmission.objects.none()
+
+        pending_assignments = assignment_subs.filter(grade__isnull=True).count()
+        pending_exams = exam_subs.filter(score__isnull=True).count() if 'ExamSubmission' in globals() else 0
+
         data = {
             "total_assignments_posted": assignments.count(),
+            "assignments_posted": assignments.count(),
             "total_exams_created": exams.count(),
-            "total_submissions_received": assignment_submissions.count() + exam_submissions.count(),
-            "pending_grades": assignment_submissions.filter(grade__isnull=True).count() + exam_submissions.filter(grade__isnull=True).count(),
+            "exams_created": exams.count(),
+            "total_submissions_received": assignment_subs.count() + exam_subs.count(),
+            "submissions_received": assignment_subs.count() + exam_subs.count(),
+            "pending_grades": pending_assignments + pending_exams
         }
         return Response(data)
-
 class Teacher_assignments_view(APIView):
     permission_classes = [IsAuthenticated]
     parser_classes  = [MultiPartParser, FormParser]
