@@ -19,22 +19,23 @@ class StudentOverviewAPIView(APIView):
         user = request.user
         now = timezone.now()
 
-        # Calculate assignment completion 
+        # 1. Task Completion (using your actual Assignment and AssignmentSubmission models)
         total_assignments = Assignment.objects.count()
-        completed_submissions = AssignmentSubmission.objects.filter(student=user, is_submitted=True).count()
+        completed_submissions = AssignmentSubmission.objects.filter(student=user).count()
         completion_rate_val = (completed_submissions / total_assignments * 100) if total_assignments > 0 else 0
 
-        # Calculate urgent deadlines due within the next 7 days
+        # 2. Urgent Deadlines (using your actual 'deadline' field name)
+        submitted_assignment_ids = AssignmentSubmission.objects.filter(student=user).values_list('assignment_id', flat=True)
         urgent_count = Assignment.objects.filter(
-            due_date__gte=now,
-            due_date__lte=now + timezone.timedelta(days=7)
-        ).exclude(submissions__student=user, submissions__is_submitted=True).count()
+            deadline__gte=now,
+            deadline__lte=now + timezone.timedelta(days=7)
+        ).exclude(id__in=submitted_assignment_ids).count()
 
-        #  dynamic JSON response
+        # 3. Dynamic JSON response
         data = {
             "student_name": user.get_full_name() or user.username,
             "term_info": "Term 1, 2026 • Current Week",
-            "status_message": "Your profile metrics are updated live from your academic records.",
+            "status_message": "Your profile is updated live from your academic records.",
             "mean_grade": "Active",
             "grade_description": "Calculated from submissions",
             "completed_tasks": completed_submissions,
@@ -42,8 +43,6 @@ class StudentOverviewAPIView(APIView):
             "completion_rate": f"{int(completion_rate_val)}%",
             "urgent_deadlines": urgent_count,
             "urgent_notes": f"{urgent_count} pending deadlines due soon",
-            "attendance_rate": "Live Status",
-            "attendance_details": "Metrics synced with database",
             "performance_strands": []
         }
 

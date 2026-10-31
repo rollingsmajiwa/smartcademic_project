@@ -15,6 +15,35 @@ from django.utils import timezone
 
 
 # Create your views here.
+# API endpoint to list teachers
+class TeacherListView(APIView):
+    permission_classes = [IsAuthenticated]
+    def get(self, request):
+        teachers = Teacher.objects.all()
+        data = [{"id": t.id, "name": str(t)} for t in teachers]
+        return Response(data)
+# teachers overview api
+class TeacherOverviewAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        teacher = request.user
+        
+        # Filter content posted by this teacher
+        assignments = Assignment_post.objects.filter(teacher=teacher)
+        exams = Exam_post.objects.filter(teacher=teacher)
+        
+        # Get submissions tied to the teacher's assignments/exams
+        assignment_submissions = AssignmentSubmission.objects.filter(assignment__in=assignments)
+        exam_submissions = ExamSubmission.objects.filter(exam__in=exams)
+        
+        data = {
+            "total_assignments_posted": assignments.count(),
+            "total_exams_created": exams.count(),
+            "total_submissions_received": assignment_submissions.count() + exam_submissions.count(),
+            "pending_grades": assignment_submissions.filter(grade__isnull=True).count() + exam_submissions.filter(grade__isnull=True).count(),
+        }
+        return Response(data)
 
 class Teacher_assignments_view(APIView):
     permission_classes = [IsAuthenticated]
@@ -30,9 +59,14 @@ class Teacher_assignments_view(APIView):
   
         # Teacher creates a new assignment (including uploading the file)
     def post(self, request, *args, **kwargs):
+        try:
+            teacher_profile = Teacher.objects.get(user=request.user)
+        except Teacher.DoesNotExist:
+            return Response({"error": "teacher profile not found"}, status=status.HTTP_400_BAD_REQUEST)
+
         serializer = AssignmentSerializer(data=request.data)
         if serializer.is_valid():
-            serializer.save()
+            serializer.save(teacher=teacher_profile)
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
