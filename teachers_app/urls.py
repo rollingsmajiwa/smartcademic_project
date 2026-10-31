@@ -1,5 +1,5 @@
 from django.urls import path
-from .views import Teacher_assignments_view, Teacher_exams_view, Teacher_profile_view, TeacherAssignmentSubmissionView, TeacherExamSubmissionView, AssignmentGradeSubmissionView, ExamGradeSubmissionView, GeoFenceAttendanceView, ClassAnalysisView, ClassGradeTableView, BulkMarkSaveView, TeacherOverviewAPIView
+from .views import Teacher_assignments_view, Teacher_exams_view, Teacher_profile_view, TeacherAssignmentSubmissionView, TeacherExamSubmissionView, AssignmentGradeSubmissionView, ExamGradeSubmissionView, GeoFenceAttendanceView, ClassAnalysisView, ClassGradeTableView, BulkMarkSaveView, TeacherOverviewAPIView,TeacherListView
 
 
 urlpatterns = [
@@ -20,4 +20,5 @@ urlpatterns = [
     
     # Final analysis report with rankings, subject means, and class mean
     path('grades/analysis/<str:class_name>/<str:term>/', ClassAnalysisView.as_view(), name='class-analysis-report'),
+    path('teachers/list/', TeacherListView.as_view(), name='teacher-list'),
 ]

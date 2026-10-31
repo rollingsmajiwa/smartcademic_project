@@ -22,6 +22,7 @@ class TeacherListView(APIView):
         teachers = Teacher.objects.all()
         data = [{"id": t.id, "name": str(t)} for t in teachers]
         return Response(data)
+    
 # teachers overview api
 class TeacherOverviewAPIView(APIView):
     permission_classes = [IsAuthenticated]
