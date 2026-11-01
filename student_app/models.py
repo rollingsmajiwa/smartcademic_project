@@ -34,7 +34,7 @@ class ExamSubmission(models.Model):
     exam = models.ForeignKey(Exam_post, on_delete=models.CASCADE, related_name='exam_submissions')
     student = models.ForeignKey(User, on_delete=models.CASCADE)
     answers_json = models.JSONField() # Stores student's answers
-    file = models.FileField() # students can upload exams inform of files
+    file = models.FileField(blank=True, null=True) # students can upload exams inform of files
     submitted_at = models.DateTimeField(auto_now_add=True)
     score = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
 

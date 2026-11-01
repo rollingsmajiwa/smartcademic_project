@@ -18,6 +18,7 @@ class ExamPostSerializer(serializers.ModelSerializer):
     class Meta:
         model = Exam_post
         fields = '__all__'
+        read_only_fields = ['teacher']
 
 class AssignmentGradeSerializer(serializers.ModelSerializer):
     class Meta:

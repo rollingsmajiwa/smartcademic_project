@@ -107,9 +107,11 @@ class StudentsSubmittedAssignmentView(generics.ListAPIView):
     def get_queryset(self):
         return AssignmentSubmission.objects.filter(student=self.request.user)
 # API view to get results of submitted exam
-class StudentsSubmittedExamView(generics.ListAPIView):
+class StudentsSubmittedExamView(generics.ListCreateAPIView):
     serializer_class = ExamSubmissionSerializer
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
         return ExamSubmission.objects.filter(student=self.request.user)
+    def perform_create(self, serializer):
+        serializer.save(student=self.request.user)

@@ -26,7 +26,7 @@ class Assignment_post(models.Model):
 
 class Exam_post(models.Model):
     title = models.CharField(max_length=250)
-    description = models.TextField()
+    description = models.TextField(blank=True, null=True)
     teacher = models.ForeignKey(Teacher, on_delete=models.CASCADE, related_name='exam_post')
     file = models.FileField(upload_to='exams/')
     duration_mins = models.IntegerField()

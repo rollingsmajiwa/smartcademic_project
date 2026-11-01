@@ -122,6 +122,14 @@ class TeacherExamSubmissionView(APIView):
         except AttributeError:
             return Response({"error": "This user has no teacher profile"}, status=status.HTTP_400_BAD_REQUEST)
 
+    def post(self, request, *args, **kwargs):
+        # allows students to post/submit their exams
+        serializer = ExamSubmissionSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save(student=request.user)
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
 # view for teachers to grade submitted assignment
 class AssignmentGradeSubmissionView(generics.UpdateAPIView):
     queryset = AssignmentSubmission.objects.all()
@@ -158,12 +166,17 @@ class Teacher_exams_view(APIView):
     
     
         # Teacher creates a new timed exam 
-    def post(self, request, *args, **kwargs):
-            serializer = ExamPostSerializer(data=request.data)
-            if serializer.is_valid():
-                serializer.save()
-                return Response(serializer.data, status=status.HTTP_201_CREATED)
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    def post(self, request):
+        try:
+            teacher_profile = Teacher.objects.get(user=request.user)
+        except Teacher.DoesNotExist:
+            teacher_profile = Teacher.objects.create(user=request.user)
+
+        serializer = ExamPostSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save(teacher=teacher_profile) # save with the teacher profile!
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     # teacher profile view
 class Teacher_profile_view(APIView):
