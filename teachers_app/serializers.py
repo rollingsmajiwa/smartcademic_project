@@ -23,12 +23,12 @@ class ExamPostSerializer(serializers.ModelSerializer):
 class AssignmentGradeSerializer(serializers.ModelSerializer):
     class Meta:
         model = AssignmentSubmission
-        fields = ['grade']
+        fields = ['score']
 
 class ExamGradeSerializer(serializers.ModelSerializer):
     class Meta:
         model = ExamSubmission
-        fields = ['grade']
+        fields = ['score']
 class TeacherAttendanceSerializer(serializers.ModelSerializer):
     """Serializer to view teacher attendance details and times"""
     teacher_name = serializers.CharField(source='teacher.name', read_only=True)

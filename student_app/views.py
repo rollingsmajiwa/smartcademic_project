@@ -12,41 +12,47 @@ from .serializers import (StudyMaterialSerializer, AssignmentSerializer, Assignm
     ExamSerializer, ExamSubmissionSerializer, StudentsAssignmentSubmissionSerializer, StudentExamSubmissionSerializer
 )
 # API view for Student Overwiew
+from django.utils import timezone
+from teachers_app.models import Assignment_post, Exam_post
+from student_app.models import AssignmentSubmission, ExamSubmission
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+
 class StudentOverviewAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
         user = request.user
-        now = timezone.now()
 
-        # 1. Task Completion (using your actual Assignment and AssignmentSubmission models)
-        total_assignments = Assignment.objects.count()
-        completed_submissions = AssignmentSubmission.objects.filter(student=user).count()
-        completion_rate_val = (completed_submissions / total_assignments * 100) if total_assignments > 0 else 0
+        # 1. Dynamically count total posts from teacher models (No hardcoding)
+        total_assignments = Assignment_post.objects.count()
+        total_exams = Exam_post.objects.count()
+        total_tasks = total_assignments + total_exams
 
-        # 2. Urgent Deadlines (using your actual 'deadline' field name)
-        submitted_assignment_ids = AssignmentSubmission.objects.filter(student=user).values_list('assignment_id', flat=True)
-        urgent_count = Assignment.objects.filter(
-            deadline__gte=now,
-            deadline__lte=now + timezone.timedelta(days=7)
-        ).exclude(id__in=submitted_assignment_ids).count()
+        # 2. Dynamically count student's actual submissions
+        completed_assignments = AssignmentSubmission.objects.filter(student=user).count()
+        completed_exams = ExamSubmission.objects.filter(student=user).count()
+        completed_tasks = completed_assignments + completed_exams
 
-        # 3. Dynamic JSON response
+        # 3. Dynamically calculate pending deadlines (Total tasks minus completed tasks)
+        urgent_deadlines = max(0, total_tasks - completed_tasks)
+
         data = {
             "student_name": user.get_full_name() or user.username,
-            "term_info": "Term 1, 2026 • Current Week",
+            "term_info": "Term 1, 2026",
             "status_message": "Your profile is updated live from your academic records.",
             "mean_grade": "Active",
             "grade_description": "Calculated from submissions",
-            "completed_tasks": completed_submissions,
-            "total_tasks": total_assignments,
-            "completion_rate": f"{int(completion_rate_val)}%",
-            "urgent_deadlines": urgent_count,
-            "urgent_notes": f"{urgent_count} pending deadlines due soon",
+            "completed_tasks": completed_tasks,
+            "total_tasks": total_tasks if total_tasks > 0 else 1,
+            "completion_rate": f"{int((completed_tasks / total_tasks) * 100)}%" if total_tasks > 0 else "0%",
+            "urgent_deadlines": urgent_deadlines,
+            "urgent_notes": f"{urgent_deadlines} pending deadlines due soon",
             "performance_strands": []
         }
 
-        return Response(data)
+        return Response(data, status=status.HTTP_200_OK)
 
 # API view Get revision Materials
 class Study_material_list_view(APIView):
