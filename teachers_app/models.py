@@ -11,6 +11,16 @@ class Teacher(models.Model):
     name = models.CharField(max_length=100, null=True, blank=True)
     def __str__(self):
         return f"Teacher:{self.user.get_full_name() or self.user.username}"
+# model for revision materials
+class TeacherRevisionMaterial(models.Model):
+    title = models.CharField(max_length=255, blank=True, null=True)
+    description = models.TextField(blank=True, null=True)
+    file = models.FileField(upload_to='revisions/')
+    class_name = models.CharField(max_length=50)
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.class_name} - {self.title}"
 
 
 class Assignment_post(models.Model):

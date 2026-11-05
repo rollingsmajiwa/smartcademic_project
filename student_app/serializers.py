@@ -36,5 +36,5 @@ class StudentsAssignmentSubmissionSerializer(serializers.ModelSerializer):
 class StudentExamSubmissionSerializer(serializers.ModelSerializer):
     class Meta:
         model = ExamSubmission
-        fields = ['id', 'exam', 'file', 'submitted_at', 'grade']
-        read_only_fields = ['grade']
+        fields = ['id', 'exam', 'answers_json', 'file', 'submitted_at', 'score']
+        read_only_fields = ['score']

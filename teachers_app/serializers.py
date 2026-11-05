@@ -1,11 +1,16 @@
 from rest_framework import serializers
-from .models import Teacher, Assignment_post, Exam_post, TeacherAttendance, StudentMark
+from .models import Teacher, Assignment_post, Exam_post, TeacherAttendance, StudentMark, TeacherRevisionMaterial
 from student_app.models import AssignmentSubmission, ExamSubmission
 
 class TeacherSerializer(serializers.ModelSerializer):
     class Meta:
         model = Teacher
         fields = '__all__'
+
+class TeacherRevisionMaterialSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = TeacherRevisionMaterial
+        fields = ['id', 'title', 'description', 'class_name','file', 'uploaded_at']
 
 
 class AssignmentSerializer(serializers.ModelSerializer):
@@ -23,7 +28,7 @@ class ExamPostSerializer(serializers.ModelSerializer):
 class AssignmentGradeSerializer(serializers.ModelSerializer):
     class Meta:
         model = AssignmentSubmission
-        fields = ['score']
+        fields = ['grade']
 
 class ExamGradeSerializer(serializers.ModelSerializer):
     class Meta:

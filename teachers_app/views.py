@@ -3,8 +3,8 @@ from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.response import Response
 from rest_framework import status, permissions, generics
 from rest_framework.permissions import IsAuthenticated
-from .models import Assignment_post, Exam_post, Teacher, TeacherAttendance, StudentMark
-from .serializers import AssignmentSerializer, ExamPostSerializer, TeacherSerializer, AssignmentGradeSerializer,ExamGradeSerializer, TeacherAttendanceSerializer, StudentMarkSerializer 
+from .models import Assignment_post, Exam_post, Teacher, TeacherAttendance, StudentMark, TeacherRevisionMaterial
+from .serializers import AssignmentSerializer, ExamPostSerializer, TeacherSerializer, AssignmentGradeSerializer,ExamGradeSerializer, TeacherAttendanceSerializer, StudentMarkSerializer, TeacherRevisionMaterialSerializer 
 from admin_app.models import StudentProfile
 from django.db.models import Avg
 from student_app.models import AssignmentSubmission, ExamSubmission
@@ -22,6 +22,22 @@ class TeacherListView(APIView):
         teachers = Teacher.objects.all()
         data = [{"id": t.id, "name": str(t)} for t in teachers]
         return Response(data)
+
+# API for revision materials
+class TeacherRevisionsView(APIView):
+    parser_classes = (MultiPartParser, FormParser) # Enables file upload handling
+
+    def get(self, request):
+        materials = TeacherRevisionMaterial.objects.all().order_by('-uploaded_at')
+        serializer = TeacherRevisionMaterialSerializer(materials, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    def post(self, request):
+        serializer = TeacherRevisionMaterialSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     
 # teachers overview api
 class TeacherOverviewAPIView(APIView):
@@ -212,7 +228,7 @@ class Teacher_profile_view(APIView):
 # School GPS Configuration, 
 LAT_FENCE = -1.1701575
 LON_FENCE = 36.82750325
-RADIUS = 0.002  # Coordinate difference threshold
+RADIUS = 0.06  # Coordinate difference threshold
 
 class GeoFenceAttendanceView(APIView):
     """
