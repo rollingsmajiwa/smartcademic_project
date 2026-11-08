@@ -36,9 +36,19 @@ class StudentProfile(models.Model):
 
 
 class TeacherProfile(models.Model):
+    GENDER_CHOICES = [
+        ('Male', 'Male'),
+        ('Female', 'Female'),
+        ('Other', 'Other'),
+    ]
+
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="admin_teacher_profile")
     tsc_number = models.CharField(max_length=50, unique=True)
-    department = models.CharField(max_length=100)
+    surname = models.CharField(max_length=100, blank=True, null=True)  # <-- Added surname
+    gender = models.CharField(max_length=10, choices=GENDER_CHOICES, null=True, blank=True)
+    date_joined = models.DateField(default=timezone.now, blank=True, null=True)  # <-- Added date joined
+    raw_password = models.CharField(max_length=128, blank=True, null=True)     # <-- Added raw password hint
+    department = models.CharField(max_length=100, blank=True, null=True)
 
     def __str__(self):
-        return f"{self.user.get_full_name()} ({self.tsc_number})"
+        return f"{self.user.first_name} {self.surname or ''} {self.user.last_name} - TSC: {self.tsc_number}"

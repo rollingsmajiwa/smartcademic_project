@@ -82,13 +82,67 @@ class StudentProfileSerializer(serializers.ModelSerializer):
         return super().update(instance, validated_data)
 class TeacherProfileSerializer(serializers.ModelSerializer):
     user = UserSerializer(read_only=True)
-    user_id = serializers.PrimaryKeyRelatedField(
-        queryset=User.objects.all(), source='user', write_only=True
-    )
+    first_name = serializers.CharField(source='user.first_name', required=False, allow_blank=True)
+    last_name = serializers.CharField(source='user.last_name', required=False, allow_blank=True)
+    email = serializers.CharField(source='user.email', required=False, allow_blank=True)
+    username = serializers.CharField(source='user.username', read_only=True)
 
     class Meta:
         model = TeacherProfile
-        fields = '__all__'
+        fields = [
+            'id', 
+            'user', 
+            'tsc_number', 
+            'first_name', 
+            'surname', 
+            'last_name', 
+            'username', 
+            'email', 
+            'gender', 
+            'date_joined', 
+            'department', 
+            'raw_password'
+        ]
+
+    def create(self, validated_data):
+        user_data = validated_data.pop('user', {})
+        first_name = user_data.get('first_name', '')
+        last_name = user_data.get('last_name', '')
+        email = user_data.get('email', '')
+        
+        # Username automatically matches the first name
+        username = first_name.strip() if first_name else 'teacher'
+        
+        password = validated_data.get('raw_password', 'password123')
+        user = User.objects.create_user(
+            username=username,
+            first_name=first_name,
+            last_name=last_name,
+            email=email,
+            password=password
+        )
+        teacher = TeacherProfile.objects.create(user=user, **validated_data)
+        return teacher
+
+    def update(self, instance, validated_data):
+        user_data = validated_data.pop('user', {})
+        user = instance.user
+        if 'first_name' in user_data:
+            user.first_name = user_data['first_name']
+            user.username = user_data['first_name']  # Sync username to first name
+        if 'last_name' in user_data:
+            user.last_name = user_data['last_name']
+        if 'email' in user_data:
+            user.email = user_data['email']
+        
+        raw_pwd = validated_data.get('raw_password')
+        if raw_pwd:
+            user.set_password(raw_pwd)
+            user.save()
+        else:
+            user.save()
+
+        return super().update(instance, validated_data)
 class TeacherAttendanceSerializer(serializers.ModelSerializer):
     class Meta:
         model = TeacherAttendance
