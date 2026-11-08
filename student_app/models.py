@@ -20,9 +20,11 @@ class Assignment(models.Model):
 class AssignmentSubmission(models.Model):
     assignment = models.ForeignKey(Assignment_post, on_delete=models.CASCADE, related_name='submissions')
     student = models.ForeignKey(User, on_delete=models.CASCADE)
+    answer_text = models.TextField(blank=True, null=True)
     file = models.FileField(upload_to='submissions/', blank=True, null=True)
     submitted_at = models.DateTimeField(auto_now_add=True)
     grade = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
+    grade_description = models.TextField(blank=True, null=True)
     
 
 class Exam(models.Model):
