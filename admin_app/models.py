@@ -1,5 +1,6 @@
 from django.db import models
 from django.contrib.auth.models import User
+from django.utils import timezone
 
 # Create your models here.
 
@@ -24,13 +25,14 @@ class StudentProfile(models.Model):
 
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="student_profile")
     admission_number = models.CharField(max_length=50, unique=True)
+    surname = models.CharField(max_length=100, blank=True, null=True)  # <-- Added surname field
     classroom = models.ForeignKey(Classroom, on_delete=models.SET_NULL, null=True, blank=True, related_name="student_profiles")
     gender = models.CharField(max_length=10, choices=GENDER_CHOICES, null=True, blank=True)
-    date_admitted = models.DateField(auto_now_add=True)  # or models.DateField(null=True, blank=True)
-    raw_password = models.CharField(max_length=128, blank=True, null=True) # Optional field if you store plain text passwords for admin display
+    date_admitted = models.DateField(default=timezone.now, blank=True, null=True)
+    raw_password = models.CharField(max_length=128, blank=True, null=True)
 
     def __str__(self):
-        return f"{self.user.get_full_name()} ({self.admission_number})"
+        return f"{self.user.first_name} {self.surname or ''} {self.user.last_name} ({self.admission_number})"
 
 
 class TeacherProfile(models.Model):
