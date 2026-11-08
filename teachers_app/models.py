@@ -9,9 +9,12 @@ class Teacher(models.Model):
     tsc_number = models.CharField(max_length=50, unique=True)
     department = models.CharField(max_length=100)
     name = models.CharField(max_length=100, null=True, blank=True)
+    
     def __str__(self):
-        return f"Teacher:{self.user.get_full_name() or self.user.username}"
-# model for revision materials
+        return f"Teacher: {self.user.get_full_name() or self.user.username}"
+
+
+# Model for revision materials
 class TeacherRevisionMaterial(models.Model):
     title = models.CharField(max_length=255, blank=True, null=True)
     description = models.TextField(blank=True, null=True)
@@ -34,6 +37,7 @@ class Assignment_post(models.Model):
     def __str__(self):
         return f"Assignment: {self.title} by {self.teacher.user.username}"
 
+
 class Exam_post(models.Model):
     title = models.CharField(max_length=250)
     description = models.TextField(blank=True, null=True)
@@ -48,9 +52,7 @@ class Exam_post(models.Model):
         return f"Exam: {self.title} ({self.duration_mins} mins)"
 
 
-
-
-# model for teacher daily attendance
+# Model for teacher daily attendance
 class TeacherAttendance(models.Model):
     """Stores daily check-in and check-out time and status for teachers"""
     teacher = models.ForeignKey('Teacher', on_delete=models.CASCADE, related_name='attendances')
@@ -62,7 +64,8 @@ class TeacherAttendance(models.Model):
     def __str__(self):
         return f"{self.teacher.name} - {self.date} ({self.status})"
 
-# model for manual marks entry
+
+# Model for manual marks entry
 class StudentMark(models.Model):
     GRADE_CHOICES = [
         ('Grade 7', 'Grade 7'),

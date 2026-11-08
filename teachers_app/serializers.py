@@ -12,12 +12,11 @@ class TeacherRevisionMaterialSerializer(serializers.ModelSerializer):
         model = TeacherRevisionMaterial
         fields = ['id', 'title', 'description', 'class_name','file', 'uploaded_at']
 
-
 class AssignmentSerializer(serializers.ModelSerializer):
     class Meta:
         model = Assignment_post
         fields = '__all__'
-        read_only_field = ['teacher']
+        read_only_fields = ['teacher']
 
 class ExamPostSerializer(serializers.ModelSerializer):
     class Meta:
@@ -25,15 +24,40 @@ class ExamPostSerializer(serializers.ModelSerializer):
         fields = '__all__'
         read_only_fields = ['teacher']
 
+# --- UPDATED: Full visibility for grading assignments ---
 class AssignmentGradeSerializer(serializers.ModelSerializer):
+    student_name = serializers.CharField(source='student.get_full_name', read_only=True)
+    student_username = serializers.CharField(source='student.username', read_only=True)
+    assignment_title = serializers.CharField(source='assignment.title', read_only=True)
+    assignment_description = serializers.CharField(source='assignment.description', read_only=True)
+    learning_area = serializers.CharField(source='assignment.course_name', default='General', read_only=True)
+
     class Meta:
         model = AssignmentSubmission
-        fields = ['grade']
+        fields = [
+            'id', 'assignment', 'assignment_title', 'assignment_description', 
+            'learning_area', 'student', 'student_name', 'student_username', 
+            'answer_text', 'file', 'submitted_at', 'grade', 'grade_description'
+        ]
+        read_only_fields = ['student', 'assignment', 'submitted_at']
 
+# --- UPDATED: Full visibility for grading exams ---
 class ExamGradeSerializer(serializers.ModelSerializer):
+    student_name = serializers.CharField(source='student.get_full_name', read_only=True)
+    student_username = serializers.CharField(source='student.username', read_only=True)
+    exam_title = serializers.CharField(source='exam.title', read_only=True)
+    exam_description = serializers.CharField(source='exam.description', read_only=True)
+    learning_area = serializers.CharField(source='exam.course_name', default='General', read_only=True)
+
     class Meta:
         model = ExamSubmission
-        fields = ['score']
+        fields = [
+            'id', 'exam', 'exam_title', 'exam_description', 'learning_area', 
+            'student', 'student_name', 'student_username', 'answers_json', 
+            'file', 'submitted_at', 'score', 'grade_description',
+        ]
+        read_only_fields = ['student', 'exam', 'submitted_at']
+
 class TeacherAttendanceSerializer(serializers.ModelSerializer):
     """Serializer to view teacher attendance details and times"""
     teacher_name = serializers.CharField(source='teacher.name', read_only=True)

@@ -4,7 +4,11 @@ from rest_framework.response import Response
 from rest_framework import status, permissions, generics
 from rest_framework.permissions import IsAuthenticated
 from .models import Assignment_post, Exam_post, Teacher, TeacherAttendance, StudentMark, TeacherRevisionMaterial
-from .serializers import AssignmentSerializer, ExamPostSerializer, TeacherSerializer, AssignmentGradeSerializer,ExamGradeSerializer, TeacherAttendanceSerializer, StudentMarkSerializer, TeacherRevisionMaterialSerializer 
+from .serializers import (
+    AssignmentSerializer, ExamPostSerializer, TeacherSerializer, 
+    AssignmentGradeSerializer, ExamGradeSerializer, TeacherAttendanceSerializer, 
+    StudentMarkSerializer, TeacherRevisionMaterialSerializer 
+)
 from admin_app.models import StudentProfile
 from django.db.models import Avg
 from student_app.models import AssignmentSubmission, ExamSubmission
@@ -14,7 +18,6 @@ import math
 from django.utils import timezone
 
 
-# Create your views here.
 # API endpoint to list teachers
 class TeacherListView(APIView):
     permission_classes = [IsAuthenticated]
@@ -25,7 +28,7 @@ class TeacherListView(APIView):
 
 # API for revision materials
 class TeacherRevisionsView(APIView):
-    parser_classes = (MultiPartParser, FormParser) # Enables file upload handling
+    parser_classes = (MultiPartParser, FormParser)
 
     def get(self, request):
         materials = TeacherRevisionMaterial.objects.all().order_by('-uploaded_at')
@@ -39,7 +42,7 @@ class TeacherRevisionsView(APIView):
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     
-# teachers overview api
+# Teachers overview API
 class TeacherOverviewAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -87,19 +90,16 @@ class TeacherOverviewAPIView(APIView):
             "pending_grades": pending_assignments + pending_exams
         }
         return Response(data)
+
 class Teacher_assignments_view(APIView):
     permission_classes = [IsAuthenticated]
-    parser_classes  = [MultiPartParser, FormParser]
-    """ API view to retrieve already submitted assignment or to create new assignment """
+    parser_classes = [MultiPartParser, FormParser]
 
     def get(self, request, *args, **kwargs):
-        # List all assignments created by teachers
         assignments = Assignment_post.objects.all()
         serializer = AssignmentSerializer(assignments, many=True)
         return Response(serializer.data)
     
-  
-        # Teacher creates a new assignment (including uploading the file)
     def post(self, request, *args, **kwargs):
         try:
             teacher_profile = Teacher.objects.get(user=request.user)
@@ -112,76 +112,64 @@ class Teacher_assignments_view(APIView):
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-# teachers to view assginments submitted by students
+# Teachers to view assignment submissions with full typed answers & student details
 class TeacherAssignmentSubmissionView(APIView):
     permission_classes = [IsAuthenticated]
     def get(self, request, *args, **kwargs):
-        # get loged-in teacher's profile
         try:
             teacher = request.user.teacher_profile
             submissions = AssignmentSubmission.objects.filter(assignment__teacher=teacher)
-            serializer = AssignmentSubmissionSerializer(submissions, many=True)
+            serializer = AssignmentGradeSerializer(submissions, many=True)
             return Response(serializer.data, status=status.HTTP_200_OK)
         except AttributeError:
             return Response({"error": "This user has no teacher profile"}, status=status.HTTP_400_BAD_REQUEST)
 
-# teachers to view examss submitted by students
+# Teachers to view exam submissions with full typed answers & student details
 class TeacherExamSubmissionView(APIView):
     permission_classes = [IsAuthenticated]
     def get(self, request, *args, **kwargs):
-        # get loged-in teacher's profile
         try:
             teacher = request.user.teacher_profile
             submissions = ExamSubmission.objects.filter(exam__teacher=teacher)
-            serializer = ExamSubmissionSerializer(submissions, many=True)
+            serializer = ExamGradeSerializer(submissions, many=True)
             return Response(serializer.data, status=status.HTTP_200_OK)
         except AttributeError:
             return Response({"error": "This user has no teacher profile"}, status=status.HTTP_400_BAD_REQUEST)
 
     def post(self, request, *args, **kwargs):
-        # allows students to post/submit their exams
         serializer = ExamSubmissionSerializer(data=request.data)
         if serializer.is_valid():
             serializer.save(student=request.user)
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-# view for teachers to grade submitted assignment
+# View for teachers to grade submitted assignments (saves grades & qualitative reviews)
 class AssignmentGradeSubmissionView(generics.UpdateAPIView):
     queryset = AssignmentSubmission.objects.all()
     serializer_class = AssignmentGradeSerializer
     permission_classes = [permissions.IsAuthenticated]
 
-    # only teachers can grade
     def perform_update(self, serializer):
-        # save the updated grade
         serializer.save()
 
-# view for teachers to grade submitted exams
+# View for teachers to grade submitted exams (saves grades & qualitative reviews)
 class ExamGradeSubmissionView(generics.UpdateAPIView):
     queryset = ExamSubmission.objects.all()
     serializer_class = ExamGradeSerializer
     permission_classes = [permissions.IsAuthenticated]
 
-    # only teachers can grade
     def perform_update(self, serializer):
-        # save the updated grade
         serializer.save()
 
 class Teacher_exams_view(APIView):
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
-    """API view to retrieve already submitted exams or to create new exams"""
 
     def get(self, request, *args, **kwargs):
-    
-        # List all timed exams created by teachers
         exams = Exam_post.objects.all()
         serializer = ExamPostSerializer(exams, many=True)
         return Response(serializer.data)
     
-    
-        # Teacher creates a new timed exam 
     def post(self, request):
         try:
             teacher_profile = Teacher.objects.get(user=request.user)
@@ -190,25 +178,21 @@ class Teacher_exams_view(APIView):
 
         serializer = ExamPostSerializer(data=request.data)
         if serializer.is_valid():
-            serializer.save(teacher=teacher_profile) # save with the teacher profile!
+            serializer.save(teacher=teacher_profile)
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-    # teacher profile view
+# Teacher profile view
 class Teacher_profile_view(APIView):
     permission_classes = [IsAuthenticated]
-    """API view to retrieve existing teacher profile or to create a new profile"""
     def get(self, request, pk, *args, **kwargs):
         try:
             teacher = Teacher.objects.get(pk=pk)
         except Teacher.DoesNotExist:
             return Response({'error': 'Teacher profile not found'}, status=status.HTTP_404_NOT_FOUND)
 
-    
-        # Retrieve the specific teacher's profile
         serializer = TeacherSerializer(teacher)
         return Response(serializer.data, status=status.HTTP_200_OK)
-
     
     def put(self, request, pk, *args, **kwargs):
         try:
@@ -216,73 +200,46 @@ class Teacher_profile_view(APIView):
         except Teacher.DoesNotExist:
             return Response({'error': 'Teacher profile not found'}, status=status.HTTP_404_NOT_FOUND)
         
-            
-
-        # Update the teacher's profile
         serializer = TeacherSerializer(teacher, data=request.data, partial=True)
         if serializer.is_valid():
             serializer.save()
             return Response(serializer.data)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-# School GPS Configuration, 
+# School GPS Configuration
 LAT_FENCE = -1.1701575
 LON_FENCE = 36.82750325
-RADIUS = 0.06  # Coordinate difference threshold
+RADIUS = 0.06
 
 class GeoFenceAttendanceView(APIView):
-    """
-    API view to handle teacher check-in and check-out via Python geofencing logic.
-    """
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
         teacher_tsc_id = request.data.get('tsc_number')
-        status_direction = request.data.get('direction')  # e.g., 'in' or 'out'
+        status_direction = request.data.get('direction')
         user_lat = request.data.get('latitude')
         user_lon = request.data.get('longitude')
 
-        # 1. Validate incoming data
         if not teacher_tsc_id or not status_direction:
-            return Response(
-                {"error": "Teacher ID and direction are required!"}, 
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return Response({"error": "Teacher ID and direction are required!"}, status=status.HTTP_400_BAD_REQUEST)
         
         if user_lat is None or user_lon is None:
-            return Response(
-                {"error": "GPS coordinates (latitude and longitude) are required!"}, 
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return Response({"error": "GPS coordinates (latitude and longitude) are required!"}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            # Find the teacher using their TSC Number
             teacher = Teacher.objects.get(tsc_number=teacher_tsc_id)
         except Teacher.DoesNotExist:
-            return Response(
-                {"error": "Teacher not found with this ID!"}, 
-                status=status.HTTP_404_NOT_FOUND
-            )
+            return Response({"error": "Teacher not found with this ID!"}, status=status.HTTP_404_NOT_FOUND)
 
-        # 2. Calculate coordinate difference (matching your simple JS logic)
         lat_distance = abs(float(user_lat) - LAT_FENCE)
         lon_distance = abs(float(user_lon) - LON_FENCE)
-
         is_inside = lat_distance < RADIUS and lon_distance < RADIUS
 
         if not is_inside:
-            return Response(
-                {"error": "You are outside the school compound."}, 
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return Response({"error": "You are outside the school compound."}, status=status.HTTP_400_BAD_REQUEST)
 
-        # 3. Record attendance in database based on direction
         today = timezone.now().date()
-        attendance, created = TeacherAttendance.objects.get_or_create(
-            teacher=teacher, 
-            date=today
-        )
-
+        attendance, created = TeacherAttendance.objects.get_or_create(teacher=teacher, date=today)
         current_time = timezone.localtime(timezone.now())
 
         if status_direction.lower() == 'in':
@@ -303,7 +260,6 @@ class GeoFenceAttendanceView(APIView):
             "time": current_time
         }, status=status.HTTP_200_OK)
 
-    # student mark view
 
 class ClassGradeTableView(APIView):
     permission_classes = [permissions.IsAuthenticated]
@@ -326,9 +282,7 @@ class ClassGradeTableView(APIView):
         table_data = []
         for student in students:
             student_name = student.user.get_full_name() or student.user.username
-            marks_qs = StudentMark.objects.filter(
-                student=student, class_name=class_name, term=term, year=2026
-            )
+            marks_qs = StudentMark.objects.filter(student=student, class_name=class_name, term=term, year=2026)
             marks_dict = {m.subject: float(m.marks) for m in marks_qs}
 
             student_row = {
@@ -355,7 +309,7 @@ class BulkMarkSaveView(APIView):
         data = request.data
         class_name = data.get('class_name')
         term = data.get('term')
-        entries = data.get('entries', []) # List of {student_id, subject, marks}
+        entries = data.get('entries', [])
         
         teacher = getattr(request.user, 'teacher_profile', None)
 
@@ -405,21 +359,16 @@ class ClassAnalysisView(APIView):
             students_data[student_name]["total_marks"] += float(record.marks)
 
         student_list = list(students_data.values())
-        
-        # Sort by total marks in descending order so rank 1 is highest scorer
         student_list = sorted(student_list, key=lambda x: x["total_marks"], reverse=True)
 
-        # Assign rankings
         for rank, student in enumerate(student_list, start=1):
             student["rank"] = rank
 
-        # Calculate Subject Means
         subject_means = {}
         for sub in subjects:
             avg_score = marks_qs.filter(subject=sub).aggregate(Avg('marks'))['marks__avg']
             subject_means[sub] = round(float(avg_score), 2) if avg_score else 0.0
 
-        # Calculate Total Class Mean
         class_total_avg = marks_qs.aggregate(Avg('marks'))['marks__avg']
         total_class_mean = round(float(class_total_avg), 2) if class_total_avg else 0.0
 

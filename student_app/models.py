@@ -36,12 +36,13 @@ class Exam(models.Model):
 class ExamSubmission(models.Model):
     exam = models.ForeignKey(Exam_post, on_delete=models.CASCADE, related_name='exam_submissions')
     student = models.ForeignKey(User, on_delete=models.CASCADE)
-    answers_json = models.JSONField() # Stores student's answers
-    file = models.FileField(blank=True, null=True) # students can upload exams inform of files
+    answers_json = models.JSONField() 
+    file = models.FileField(blank=True, null=True) 
     submitted_at = models.DateTimeField(auto_now_add=True)
     score = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
+    grade_description = models.TextField(blank=True, null=True)
+    is_auto_submitted = models.BooleanField(default=False)
+    status = models.CharField(max_length=50, default="Manual")
 
-    is_auto_submitted = models.BooleanField(default=False) # for countdown timers
     def __str__(self):
-        status = "Auto-Submission" if self.is_auto_submitted else "Manual"
-        return f"Submission: {self.exam.title} by {self.student.username} ({status})"
+        return f"Submission: {self.exam.title} by {self.student.username} ({self.status})"
