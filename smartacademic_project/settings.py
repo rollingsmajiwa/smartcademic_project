@@ -145,8 +145,15 @@ REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES' : [
         'rest_framework_simplejwt.authentication.JWTAuthentication',
     ],
+    "DEFAULT_THROTTLE_RATES": {
+        "login": "10/minute",
+        "otp_send": "10/hour",
+        "otp_verify": "30/hour",
+        "register": "10/hour",
+        "password_set": "10/hour",
+    },
 }
-
+FRONTEND_URL = "http://localhost:5173"
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
@@ -169,3 +176,4 @@ EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD')
 DEFAULT_FROM_EMAIL = f'SmartAcademic Support <{os.getenv("EMAIL_HOST_USER")}>'
 
 GOOGLE_CLIENT_ID = os.getenv('GOOGLE_CLIENT_ID')
+GOOGLE_CLIENT_SECRET = os.getenv('GOOGLE_CLIENT_SECRET')

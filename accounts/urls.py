@@ -6,8 +6,10 @@ from .views import (
     VerifyUniversalOTPView,
     AdminUserListCreateView,
     AdminUserDeleteView,
-    GoogleAuthView
-    
+    GoogleAuthView,
+    AdminInviteUserView,   
+    SetPasswordView,        
+    EmailPasswordLoginView  
 )
 
 urlpatterns = [
@@ -19,10 +21,17 @@ urlpatterns = [
     path('staff/send-otp/', SendUniversalOTPView.as_view(), name='staff-send-otp'),
     path('staff/verify-otp/', VerifyUniversalOTPView.as_view(), name='staff-verify-otp'),
 
-    # Admin Management Routes
+    # Standard Email & Password Login Route
+    path('auth/login/password/', EmailPasswordLoginView.as_view(), name='email-password-login'),
+
+    # Account Activation & Password Setup Route (From Email Link)
+    path('auth/set-password/', SetPasswordView.as_view(), name='set-password'),
+
+    # Admin Management & Invitation Routes
     path('admin/users/', AdminUserListCreateView.as_view(), name='admin-user-list-create'),
     path('admin/users/<int:id>/', AdminUserDeleteView.as_view(), name='admin-user-delete'),
+    path('admin/invite/', AdminInviteUserView.as_view(), name='admin-invite'), # <--- Added
 
-    # google OTP
+    # Google Auth Route
     path('auth/google/', GoogleAuthView.as_view(), name='google_auth'),
 ]

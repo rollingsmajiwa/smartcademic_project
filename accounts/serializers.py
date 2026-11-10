@@ -1,84 +1,71 @@
-from rest_framework import serializers
 from django.contrib.auth.models import User
+from django.contrib.auth.password_validation import validate_password as run_password_validators
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db import transaction
+from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
+
 from .models import UserProfile
-from admin_app.models import TeacherProfile, StudentProfile
-import random
 
-# Public Sign-Up Serializer (Defaults to 'student')
-class RegisterSerializer(serializers.ModelSerializer):
-    role = serializers.ChoiceField(choices=[('student', 'Student'), ('teacher', 'Teacher')], default='student', write_only=True)
 
-    class Meta:
-        model = User
-        fields = ['email', 'first_name', 'last_name', 'role']
-        extra_kwargs = {
-            'email': {'required': True},
-            'first_name': {'required': True},
-            'last_name': {'required': True},
-        }
+# NOTE: The views module imports this one, so anything we need from views.py
+# is imported lazily inside the methods below to avoid a circular import.
 
-    def validate_email(self, value):
-        if User.objects.filter(email=value).exists():
-            raise serializers.ValidationError("An account with this email already exists.")
-        return value
 
-    def create(self, validated_data):
-        role = validated_data.pop('role', 'student')
-        email = validated_data['email']
-        
-        # Use email as username for uniform password-less OTP flow
-        user = User.objects.create_user(
-            username=email,
-            **validated_data
-        )
-
-        # 1. Store global role in UserProfile
-        UserProfile.objects.create(user=user, role=role)
-
-        # 2. Automatically generate the target profile type
-        if role == 'teacher':
-            TeacherProfile.objects.create(user=user)
-        else:
-            StudentProfile.objects.create(
-                user=user,
-                admission_number=f"STU-{random.randint(1000, 9999)}"
-            )
-
-        return user
-
-# Custom JWT Serializer (Embeds role into JWT payload)
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
+    """Embeds the user's role in the JWT, using the same logic as the views."""
+
     @classmethod
     def get_token(cls, user):
+        from .views import get_user_role
+
         token = super().get_token(user)
-        
-        # Safely fetch role from UserProfile
-        try:
-            profile = UserProfile.objects.get(user=user)
-            token['role'] = profile.role
-        except UserProfile.DoesNotExist:
-            token['role'] = 'student'  # Fallback only if no profile exists
-            
+        token['role'] = get_user_role(user)
         token['username'] = user.username
         return token
 
-# Admin User Management Serializer
+
 class AdminUserManagementSerializer(serializers.ModelSerializer):
-    role = serializers.CharField(source='profile.role', required=True)
+    """Used by admins to list users and to create them with a given role."""
+
+    role = serializers.ChoiceField(choices=UserProfile.ROLE_CHOICES, source='profile.role')
+    password = serializers.CharField(write_only=True, style={'input_type': 'password'})
 
     class Meta:
         model = User
         fields = ('id', 'username', 'email', 'password', 'role')
-        extra_kwargs = {'password': {'write_only': True}}
 
+    def validate_email(self, value):
+        value = value.strip().lower()
+        if value and User.objects.filter(email__iexact=value).exists():
+            raise serializers.ValidationError('A user with this email already exists.')
+        return value
+
+    def validate_password(self, value):
+        try:
+            run_password_validators(value)
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError(list(exc.messages))
+        return value
+
+    def validate(self, attrs):
+        role = attrs.get('profile', {}).get('role')
+        request = self.context.get('request')
+        if role == 'admin' and not (request and request.user.is_superuser):
+            raise serializers.ValidationError({'role': 'Only superusers can create admins.'})
+        return attrs
+
+    @transaction.atomic
     def create(self, validated_data):
-        profile_data = validated_data.pop('profile', {})
-        role = profile_data.get('role', 'student')
+        from .views import attach_role_profiles
+
+        role = validated_data.pop('profile')['role']
         user = User.objects.create_user(
             username=validated_data['username'],
             email=validated_data.get('email', ''),
-            password=validated_data['password']
+            password=validated_data['password'],
         )
-        UserProfile.objects.create(user=user, role=role)
+        # Creates UserProfile, the teacher/student profile, and sets the
+        # staff flag correctly for the role.
+        attach_role_profiles(user, role)
         return user
