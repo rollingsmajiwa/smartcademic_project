@@ -24,6 +24,7 @@ class StudentProfile(models.Model):
     ]
 
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="student_profile")
+    
     admission_number = models.CharField(max_length=50, unique=True)
     surname = models.CharField(max_length=100, blank=True, null=True)  # <-- Added surname field
     classroom = models.ForeignKey(Classroom, on_delete=models.SET_NULL, null=True, blank=True, related_name="student_profiles")

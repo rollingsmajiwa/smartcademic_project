@@ -50,7 +50,6 @@ class StudentProfileSerializer(serializers.ModelSerializer):
         first_name = user_data.get('first_name', '')
         last_name = user_data.get('last_name', '')
         
-        # Username is automatically the first name
         username = first_name.strip() if first_name else 'student'
         
         password = validated_data.get('raw_password', 'password123')
@@ -68,7 +67,7 @@ class StudentProfileSerializer(serializers.ModelSerializer):
         user = instance.user
         if 'first_name' in user_data:
             user.first_name = user_data['first_name']
-            user.username = user_data['first_name']  # Username synced to first name
+            user.username = user_data['first_name']  
         if 'last_name' in user_data:
             user.last_name = user_data['last_name']
         
@@ -80,6 +79,7 @@ class StudentProfileSerializer(serializers.ModelSerializer):
             user.save()
 
         return super().update(instance, validated_data)
+
 class TeacherProfileSerializer(serializers.ModelSerializer):
     user = UserSerializer(read_only=True)
     first_name = serializers.CharField(source='user.first_name', required=False, allow_blank=True)
@@ -105,44 +105,53 @@ class TeacherProfileSerializer(serializers.ModelSerializer):
         ]
 
     def create(self, validated_data):
-        user_data = validated_data.pop('user', {})
-        first_name = user_data.get('first_name', '')
-        last_name = user_data.get('last_name', '')
-        email = user_data.get('email', '')
+        user_info = validated_data.pop('user', {})
+        first_name = user_info.get('first_name', '')
+        last_name = user_info.get('last_name', '')
+        email = user_info.get('email', '')
         
-        # Username automatically matches the first name
-        username = first_name.strip() if first_name else 'teacher'
+        if not email and 'email' in validated_data:
+            email = validated_data.get('email', '')
+
+        # Use email as username if provided, ensuring uniqueness for login lookups
+        username = email if email else (first_name.strip() if first_name else 'teacher')
         
         password = validated_data.get('raw_password', 'password123')
+        
+        # Create core Django user with is_staff=True for OTP authentication
         user = User.objects.create_user(
             username=username,
             first_name=first_name,
             last_name=last_name,
             email=email,
-            password=password
+            password=password,
+            is_staff=True 
         )
+        
         teacher = TeacherProfile.objects.create(user=user, **validated_data)
         return teacher
 
     def update(self, instance, validated_data):
-        user_data = validated_data.pop('user', {})
+        user_info = validated_data.pop('user', {})
         user = instance.user
-        if 'first_name' in user_data:
-            user.first_name = user_data['first_name']
-            user.username = user_data['first_name']  # Sync username to first name
-        if 'last_name' in user_data:
-            user.last_name = user_data['last_name']
-        if 'email' in user_data:
-            user.email = user_data['email']
+        
+        if 'first_name' in user_info:
+            user.first_name = user_info['first_name']
+        if 'last_name' in user_info:
+            user.last_name = user_info['last_name']
+        if 'email' in user_info:
+            user.email = user_info['email']
+            user.username = user_info['email'] # Keep username aligned with email
+            
+        user.is_staff = True # Enforce staff access status
         
         raw_pwd = validated_data.get('raw_password')
         if raw_pwd:
             user.set_password(raw_pwd)
-            user.save()
-        else:
-            user.save()
-
+            
+        user.save()
         return super().update(instance, validated_data)
+
 class TeacherAttendanceSerializer(serializers.ModelSerializer):
     class Meta:
         model = TeacherAttendance

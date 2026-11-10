@@ -59,15 +59,24 @@ class ExamGradeSerializer(serializers.ModelSerializer):
         read_only_fields = ['student', 'exam', 'submitted_at']
 
 class TeacherAttendanceSerializer(serializers.ModelSerializer):
-    """Serializer to view teacher attendance details and times"""
-    teacher_name = serializers.CharField(source='teacher.name', read_only=True)
-
+    teacher_name = serializers.SerializerMethodField()
+    surname = serializers.CharField(source='teacher.surname', read_only=True)
+    first_name = serializers.CharField(source='teacher.user.first_name', read_only=True)
+    tsc_number = serializers.CharField(source='teacher.tsc_number', read_only=True)
+    
     class Meta:
         model = TeacherAttendance
-        fields = ['id', 'teacher_name', 'date', 'check_in_time', 'check_out_time', 'status']
+        fields = '__all__'
+
+    def get_teacher_name(self, obj):
+        if obj.teacher:
+            first = obj.teacher.user.first_name or ''
+            middle = obj.teacher.surname or ''
+            last = obj.teacher.user.last_name or ''
+            return f"{first} {middle} {last}".strip()
+        return "Unknown Teacher"
 
 class StudentMarkSerializer(serializers.ModelSerializer):
     class Meta:
         model = StudentMark
-        fields = ['id', 'student', 'subject', 'marks', 'term', 'year', 'class_name', 'teacher', 'updated_at']
-        read_only_fields = ['teacher', 'updated_at', 'year']
+        fields = '__all__'

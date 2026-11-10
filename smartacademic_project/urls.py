@@ -31,7 +31,7 @@ class CustomTokenObtainPairView(TokenObtainPairView):
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-    path('', include('accounts.urls')),
+    path('api/accounts/', include('accounts.urls')),
     path('api/students/', include('student_app.urls')),
     path('api/teachers/', include('teachers_app.urls')),
     path('api/admin/', include('admin_app.urls')),
