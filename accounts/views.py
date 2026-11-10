@@ -9,11 +9,13 @@ import random
 from django.core.mail import send_mail
 from django.core.cache import cache
 from rest_framework_simplejwt.tokens import RefreshToken
+from google.oauth2 import id_token
+from google.auth.transport import requests as google_requests
+from django.conf import settings
 
 
-# ==========================================
-# 1. TEACHER & ADMIN AUTHENTICATION (Email + OTP)
-# ==========================================
+#  TEACHER & ADMIN AUTHENTICATION (Email + OTP)
+
 
 class SendUniversalOTPView(APIView):
     permission_classes = [permissions.AllowAny]
@@ -104,10 +106,8 @@ class VerifyUniversalOTPView(APIView):
 
         return Response({'error': 'Invalid or expired login code. Please try again.'}, status=status.HTTP_400_BAD_REQUEST)
 
-
-# ==========================================
 # 2. STUDENT REGISTRATION & LOGIN (Admission Number)
-# ==========================================
+
 
 class StudentRegisterView(APIView):
     permission_classes = [permissions.AllowAny]
@@ -193,3 +193,53 @@ class AdminUserDeleteView(generics.DestroyAPIView):
     serializer_class = AdminUserManagementSerializer
     permission_classes = [IsAdminUserRole]
     lookup_field = 'id'
+
+class GoogleAuthView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        token = request.data.get('token')
+        if not token:
+            return Response({'error': 'Google token is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            # Verify the token against Google's public certificates using your settings client ID
+            idinfo = id_token.verify_oauth2_token(
+                token, 
+                google_requests.Request(), 
+                settings.GOOGLE_CLIENT_ID
+            )
+            email = idinfo.get('email', '').strip().lower()
+        except ValueError as e:
+            return Response({'error': f'Invalid Google token: {str(e)}'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if not email:
+            return Response({'error': 'Could not retrieve email from Google account.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Check if user exists in database
+        try:
+            user = User.objects.get(email__iexact=email)
+        except User.DoesNotExist:
+            return Response({'error': 'No authorized account found with this Google email.'}, status=status.HTTP_404_NOT_FOUND)
+
+        # Check if teacher profile exists safely via ForeignKey relationship
+        is_teacher = TeacherProfile.objects.filter(user=user).exists()
+
+        # Accurately resolve role for admin vs teacher
+        if user.is_superuser or user.is_staff or (hasattr(user, 'userprofile') and user.userprofile.role == 'admin'):
+            role = 'admin'
+        elif is_teacher:
+            role = 'teacher'
+        else:
+            return Response({'error': 'Unauthorized account type.'}, status=status.HTTP_403_FORBIDDEN)
+
+        # Generate JWT tokens and attach the role
+        refresh = RefreshToken.for_user(user)
+        refresh['role'] = role
+
+        return Response({
+            'refresh': str(refresh),
+            'access': str(refresh.access_token),
+            'role': role,
+            'message': 'Google authentication successful!'
+        }, status=status.HTTP_200_OK)

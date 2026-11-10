@@ -5,7 +5,9 @@ from .views import (
     SendUniversalOTPView,
     VerifyUniversalOTPView,
     AdminUserListCreateView,
-    AdminUserDeleteView
+    AdminUserDeleteView,
+    GoogleAuthView
+    
 )
 
 urlpatterns = [
@@ -20,4 +22,7 @@ urlpatterns = [
     # Admin Management Routes
     path('admin/users/', AdminUserListCreateView.as_view(), name='admin-user-list-create'),
     path('admin/users/<int:id>/', AdminUserDeleteView.as_view(), name='admin-user-delete'),
+
+    # google OTP
+    path('auth/google/', GoogleAuthView.as_view(), name='google_auth'),
 ]
