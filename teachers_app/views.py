@@ -1,3 +1,4 @@
+from datetime import time
 from rest_framework.decorators import APIView
 from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.response import Response
@@ -9,13 +10,18 @@ from .serializers import (
     AssignmentGradeSerializer, ExamGradeSerializer, TeacherAttendanceSerializer, 
     StudentMarkSerializer, TeacherRevisionMaterialSerializer 
 )
-from admin_app.models import StudentProfile
+from admin_app.models import StudentProfile, TeacherProfile
 from django.db.models import Avg
 from student_app.models import AssignmentSubmission, ExamSubmission
 from student_app.serializers import AssignmentSubmissionSerializer, ExamSubmissionSerializer
 
 import math
 from django.utils import timezone
+
+import pandas as pd
+from django.http import HttpResponse
+from rest_framework.views import APIView
+
 
 
 # API endpoint to list teachers
@@ -206,60 +212,276 @@ class Teacher_profile_view(APIView):
             return Response(serializer.data)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-# School GPS Configuration
+
+# ==========================================
+# TEACHER GPS ATTENDANCE SYSTEM
+# ==========================================
+
+# School GPS coordinates
 LAT_FENCE = -1.1701575
 LON_FENCE = 36.82750325
-RADIUS = 0.06
+
+# Allowed distance from school: 500 metres
+RADIUS_METERS = 500
+
+# Attendance cutoff
+ON_TIME_CUTOFF = time(7, 0)
+
+
+def calculate_distance(lat1, lon1, lat2, lon2):
+    """
+    Calculate distance between two GPS coordinates
+    using the Haversine formula.
+    Returns distance in metres.
+    """
+
+    earth_radius = 6371000
+
+    lat1 = math.radians(lat1)
+    lon1 = math.radians(lon1)
+    lat2 = math.radians(lat2)
+    lon2 = math.radians(lon2)
+
+    dlat = lat2 - lat1
+    dlon = lon2 - lon1
+
+    a = (
+        math.sin(dlat / 2) ** 2
+        + math.cos(lat1)
+        * math.cos(lat2)
+        * math.sin(dlon / 2) ** 2
+    )
+
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+    return earth_radius * c
+
 
 class GeoFenceAttendanceView(APIView):
+
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
+
+        # Get submitted information
         teacher_tsc_id = request.data.get('tsc_number')
-        status_direction = request.data.get('direction')
+        direction = request.data.get('direction', 'in').lower()
+
         user_lat = request.data.get('latitude')
         user_lon = request.data.get('longitude')
 
-        if not teacher_tsc_id or not status_direction:
-            return Response({"error": "Teacher ID and direction are required!"}, status=status.HTTP_400_BAD_REQUEST)
-        
+        # ==================================
+        # VALIDATE INPUT
+        # ==================================
+
+        if not teacher_tsc_id:
+            return Response(
+                {"error": "Teacher TSC Number is required!"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if direction not in ['in', 'out']:
+            return Response(
+                {"error": "Direction must be either 'in' or 'out'."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
         if user_lat is None or user_lon is None:
-            return Response({"error": "GPS coordinates (latitude and longitude) are required!"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"error": "GPS coordinates are required!"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
         try:
-            teacher = Teacher.objects.get(tsc_number=teacher_tsc_id)
-        except Teacher.DoesNotExist:
-            return Response({"error": "Teacher not found with this ID!"}, status=status.HTTP_404_NOT_FOUND)
+            user_lat = float(user_lat)
+            user_lon = float(user_lon)
 
-        lat_distance = abs(float(user_lat) - LAT_FENCE)
-        lon_distance = abs(float(user_lon) - LON_FENCE)
-        is_inside = lat_distance < RADIUS and lon_distance < RADIUS
+            if not (
+                math.isfinite(user_lat)
+                and math.isfinite(user_lon)
+                and -90 <= user_lat <= 90
+                and -180 <= user_lon <= 180
+            ):
+                raise ValueError
+
+        except (ValueError, TypeError):
+            return Response(
+                {"error": "Invalid GPS coordinates."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # ==================================
+        # FIND TEACHER
+        # ==================================
+
+        try:
+            teacher = TeacherProfile.objects.get(
+                tsc_number=teacher_tsc_id
+            )
+
+        except TeacherProfile.DoesNotExist:
+            return Response(
+                {"error": "Teacher not found with this TSC Number!"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # ==================================
+        # VERIFY SCHOOL LOCATION
+        # ==================================
+
+        distance = calculate_distance(
+            user_lat,
+            user_lon,
+            LAT_FENCE,
+            LON_FENCE
+        )
+
+        is_inside = distance <= RADIUS_METERS
+
+        # ==================================
+        # GET CURRENT DATE AND TIME
+        # ==================================
+
+        current_time = timezone.localtime()
+        today = current_time.date()
+
+        # ==================================
+        # GET TODAY'S ATTENDANCE RECORD
+        # ==================================
+
+        attendance = TeacherAttendance.objects.filter(
+            teacher=teacher,
+            date=today
+        ).first()
+
+        # ==================================
+        # HANDLE AUTOMATIC CLOCK-OUT
+        # ==================================
 
         if not is_inside:
-            return Response({"error": "You are outside the school compound."}, status=status.HTTP_400_BAD_REQUEST)
 
-        today = timezone.now().date()
-        attendance, created = TeacherAttendance.objects.get_or_create(teacher=teacher, date=today)
-        current_time = timezone.localtime(timezone.now())
+            if (
+                attendance
+                and attendance.check_in_time
+                and not attendance.check_out_time
+            ):
 
-        if status_direction.lower() == 'in':
+                attendance.check_out_time = current_time
+
+                attendance.save(
+                    update_fields=['check_out_time']
+                )
+
+                return Response({
+                    "success": True,
+                    "message": "You left the school compound. Automatically clocked OUT.",
+                    "time": current_time,
+                    "status": attendance.status
+                }, status=status.HTTP_200_OK)
+
+            return Response({
+                "error": "You are outside the school compound.",
+                "distance_metres": round(distance, 2)
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        # ==================================
+        # CREATE TODAY'S ATTENDANCE RECORD
+        # ==================================
+
+        if attendance is None:
+
+            attendance = TeacherAttendance.objects.create(
+                teacher=teacher,
+                date=today,
+                status='Absent'
+            )
+
+        # ==================================
+        # HANDLE CLOCK-IN
+        # ==================================
+
+        if direction == 'in':
+
             if attendance.check_in_time:
-                return Response({"message": "Already clocked in today."}, status=status.HTTP_400_BAD_REQUEST)
+
+                return Response({
+                    "error": "You have already clocked in today.",
+                    "status": attendance.status
+                }, status=status.HTTP_400_BAD_REQUEST)
+
             attendance.check_in_time = current_time
-            attendance.status = 'Present'
-        elif status_direction.lower() == 'out':
+
+            # Before or exactly 7:00 AM = Present
+            # After 7:00 AM = Late
+
+            if current_time.time() > ON_TIME_CUTOFF:
+
+                attendance.status = 'Late'
+
+            else:
+
+                attendance.status = 'Present'
+
+            attendance.save(
+                update_fields=[
+                    'check_in_time',
+                    'status'
+                ]
+            )
+
+        # ==================================
+        # HANDLE CLOCK-OUT
+        # ==================================
+
+        elif direction == 'out':
+
+            if not attendance.check_in_time:
+
+                return Response({
+                    "error": "You must clock in before clocking out."
+                }, status=status.HTTP_400_BAD_REQUEST)
+
             if attendance.check_out_time:
-                return Response({"message": "Already clocked out today."}, status=status.HTTP_400_BAD_REQUEST)
+
+                return Response({
+                    "error": "You have already clocked out today."
+                }, status=status.HTTP_400_BAD_REQUEST)
+
             attendance.check_out_time = current_time
-        
-        attendance.save()
+
+            attendance.save(
+                update_fields=['check_out_time']
+            )
+
+        # ==================================
+        # SUCCESS RESPONSE
+        # ==================================
 
         return Response({
-            "success": True,
-            "message": f"Success! Clocked {status_direction}",
-            "time": current_time
-        }, status=status.HTTP_200_OK)
 
+            "success": True,
+
+            "message": (
+                "Successfully clocked IN."
+                if direction == 'in'
+                else "Successfully clocked OUT."
+            ),
+
+            "teacher": str(teacher),
+
+            "date": today,
+
+            "time": current_time,
+
+            "distance_metres": round(distance, 2),
+
+            "status": attendance.status,
+
+            "check_in_time": attendance.check_in_time,
+
+            "check_out_time": attendance.check_out_time
+
+        }, status=status.HTTP_200_OK)
 
 class ClassGradeTableView(APIView):
     permission_classes = [permissions.IsAuthenticated]
@@ -329,55 +551,153 @@ class BulkMarkSaveView(APIView):
         return Response({"detail": "Marks saved successfully!"}, status=status.HTTP_200_OK)
 
 
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import landscape, A4
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from io import BytesIO
+def get_grade_level(score):
+    if score is None:
+        return "-"
+    if score >= 90:
+        return "EE"
+    elif score >= 70:
+        return "ME"
+    elif score >= 40:
+        return "AE"
+    else:
+        return "BE"
+
+SUBJECT_SHORT = {
+    'maths': 'Maths', 'kiswahili': 'Kiswahili', 'english': 'English',
+    'pretechnical_studies': 'Pre-Tech', 'integrated_science': 'Int. Sci',
+    'social_studies': 'Soc. Studies', 'cre': 'CRE', 'arts': 'Arts',
+    'agriculture': 'Agric',
+}
+
+
 class ClassAnalysisView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
+    SUBJECTS = [
+        'maths', 'kiswahili', 'english', 'pretechnical_studies',
+        'integrated_science', 'social_studies', 'cre', 'arts', 'agriculture'
+    ]
+
     def get(self, request, class_name, term):
+        subjects = self.SUBJECTS
         marks_qs = StudentMark.objects.filter(class_name=class_name, term=term, year=2026)
-        
+        export = request.GET.get('export')
+
         if not marks_qs.exists():
-            return Response({"detail": "No marks found for this grade and term."}, status=status.HTTP_404_NOT_FOUND)
+            if export:
+                return Response({"detail": "No marks saved for this class and term yet."},
+                                status=status.HTTP_404_NOT_FOUND)
+            # Not an error: the teacher just has not entered marks yet
+            return Response({
+                "class_name": class_name, "term": term, "year": 2026,
+                "subject_columns": subjects,
+                "student_performance_table": [],
+                "subject_means": {}, "total_class_mean": 0.0,
+            }, status=status.HTTP_200_OK)
 
-        subjects = [
-            'maths', 'kiswahili', 'english', 'pretechnical_studies', 
-            'integrated_science', 'social_studies', 'cre', 'arts', 'agriculture'
-        ]
-
+        # Keyed by student id, so two students with the same name are not merged
         students_data = {}
-        student_records = marks_qs.select_related('student', 'student__user')
-
-        for record in student_records:
-            student_name = record.student.user.get_full_name() or record.student.user.username
-            if student_name not in students_data:
-                students_data[student_name] = {
+        for record in marks_qs.select_related('student', 'student__user'):
+            sid = record.student_id
+            if sid not in students_data:
+                name = record.student.user.get_full_name() or record.student.user.username
+                students_data[sid] = {
                     "admission_number": record.student.admission_number,
-                    "name": student_name,
-                    "subjects": {sub: 0.0 for sub in subjects},
-                    "total_marks": 0.0
+                    "name": name,
+                    "subjects": {sub: {"score": 0.0, "level": "BE"} for sub in subjects},
+                    "total_marks": 0.0,
                 }
-            students_data[student_name]["subjects"][record.subject] = float(record.marks)
-            students_data[student_name]["total_marks"] += float(record.marks)
+            score = float(record.marks)
+            students_data[sid]["subjects"][record.subject] = {
+                "score": score, "level": get_grade_level(score),
+            }
+            students_data[sid]["total_marks"] += score
 
-        student_list = list(students_data.values())
-        student_list = sorted(student_list, key=lambda x: x["total_marks"], reverse=True)
-
+        student_list = sorted(students_data.values(), key=lambda x: x["total_marks"], reverse=True)
         for rank, student in enumerate(student_list, start=1):
             student["rank"] = rank
 
         subject_means = {}
         for sub in subjects:
-            avg_score = marks_qs.filter(subject=sub).aggregate(Avg('marks'))['marks__avg']
-            subject_means[sub] = round(float(avg_score), 2) if avg_score else 0.0
+            avg = marks_qs.filter(subject=sub).aggregate(Avg('marks'))['marks__avg']
+            subject_means[sub] = round(float(avg), 2) if avg else 0.0
 
-        class_total_avg = marks_qs.aggregate(Avg('marks'))['marks__avg']
-        total_class_mean = round(float(class_total_avg), 2) if class_total_avg else 0.0
+        # Total class mean = sum of every learner's total marks / number of learners
+        total_class_mean = (
+        round(sum(s["total_marks"] for s in student_list) / len(student_list), 2)
+        if student_list else 0.0
+        )
+
+        if export == 'pdf':
+            return self.export_to_pdf(student_list, subjects, subject_means,
+                                      total_class_mean, class_name, term)
 
         return Response({
-            "class_name": class_name,
-            "term": term,
-            "year": 2026,
+            "class_name": class_name, "term": term, "year": 2026,
             "subject_columns": subjects,
             "student_performance_table": student_list,
             "subject_means": subject_means,
-            "total_class_mean": total_class_mean
+            "total_class_mean": total_class_mean,
         }, status=status.HTTP_200_OK)
+
+    def export_to_pdf(self, student_list, subjects, subject_means, total_class_mean, class_name, term):
+        buffer = BytesIO()
+        doc = SimpleDocTemplate(
+            buffer, pagesize=landscape(A4),
+            leftMargin=24, rightMargin=24, topMargin=24, bottomMargin=24,
+        )
+        styles = getSampleStyleSheet()
+        elements = [
+            Paragraph(f"Class Performance Report: {class_name}, {term} 2026", styles['Title']),
+            Paragraph(f"Students: {len(student_list)} &nbsp;&nbsp; Class mean: {total_class_mean}", styles['Normal']),
+            Spacer(1, 12),
+        ]
+
+        data = [['Rank', 'Adm No', 'Student'] + [SUBJECT_SHORT.get(s, s) for s in subjects] + ['Total']]
+        for s in student_list:
+            row = [s["rank"], s["admission_number"], s["name"]]
+            for sub in subjects:
+                d = s["subjects"][sub]
+                row.append(f"{d['score']:g} {d['level']}")
+            row.append(f"{s['total_marks']:g}")
+            data.append(row)
+        data.append(['', '', 'Subject mean'] + [f"{subject_means.get(sub, 0):g}" for sub in subjects] + [''])
+
+        col_widths = [32, 55, 130] + [56] * len(subjects) + [50]
+        table = Table(data, colWidths=col_widths, repeatRows=1)
+        table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#10002b')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, -1), 8),
+            ('ALIGN', (3, 0), (-1, -1), 'CENTER'),
+            ('GRID', (0, 0), (-1, -1), 0.4, colors.HexColor('#999999')),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -2), [colors.white, colors.HexColor('#f5ecff')]),
+            ('BACKGROUND', (0, -1), (-1, -1), colors.HexColor('#e0c3fc')),
+            ('FONTNAME', (0, -1), (-1, -1), 'Helvetica-Bold'),
+        ]))
+        elements.append(table)
+        elements.append(Spacer(1, 10))
+        elements.append(Paragraph("Levels: EE 90 and above, ME 70-89, AE 40-69, BE below 40.", styles['Normal']))
+
+        doc.build(elements)
+
+        filename = f"{class_name}_{term}_Class_Report.pdf".replace(' ', '_')
+        response = HttpResponse(buffer.getvalue(), content_type='application/pdf')
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        return response
+class ClassListView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        # Resolve the Classroom model from StudentProfile.classroom so no import name is guessed
+        Classroom = StudentProfile._meta.get_field('classroom').related_model
+        data = [{"id": c.id, "name": c.name} for c in Classroom.objects.all().order_by('name')]
+        return Response(data)
+

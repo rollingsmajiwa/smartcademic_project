@@ -25,7 +25,7 @@ urlpatterns = [
     path('auth/login/password/', EmailPasswordLoginView.as_view(), name='email-password-login'),
 
     # Account Activation & Password Setup Route (From Email Link)
-    path('auth/set-password/', SetPasswordView.as_view(), name='set-password'),
+    path('auth/signup/', SetPasswordView.as_view(), name='signup'),
 
     # Admin Management & Invitation Routes
     path('admin/users/', AdminUserListCreateView.as_view(), name='admin-user-list-create'),

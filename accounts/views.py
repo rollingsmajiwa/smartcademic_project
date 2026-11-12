@@ -431,7 +431,7 @@ class AdminInviteUserView(APIView):
 
                 uid = urlsafe_base64_encode(force_bytes(user.pk))
                 token = default_token_generator.make_token(user)
-                link = f"{settings.FRONTEND_URL}/set-password?uid={uid}&token={token}"
+                link = f"{settings.FRONTEND_URL}/signup?uid={uid}&token={token}"
 
                 send_mail(
                     subject="Welcome to SmartAcademic - Set Your Password",
@@ -456,37 +456,70 @@ class AdminInviteUserView(APIView):
         )
 
 
+
 class SetPasswordView(PublicAPIView):
     throttle_scope = "password_set"
 
     def post(self, request):
-        uid = request.data.get("uid")
-        token = request.data.get("token")
+        raw_uid = request.data.get("uid", "")
+        raw_token = request.data.get("token", "")
         password = request.data.get("password")
 
+        uid = str(raw_uid).strip()
+        token = str(raw_token).strip()
+
+        print("\n========== ACTIVATION DEBUG ==========")
+        print("UID received:", repr(uid))
+        print("UID length:", len(uid))
+        print("Token length:", len(token))
+        print("Token received:", bool(token))
+        print("Password received:", bool(password))
+
         if not uid or not token or not password:
+            print("RESULT: Missing activation details")
             return error("Missing activation details.")
 
         try:
-            user = User.objects.get(pk=force_str(urlsafe_base64_decode(uid)))
-        except (User.DoesNotExist, ValueError, TypeError, OverflowError):
+            decoded_uid = force_str(urlsafe_base64_decode(uid))
+            user = User.objects.get(pk=decoded_uid)
+
+            print("Decoded UID:", decoded_uid)
+            print("User found:", user.pk)
+            print("User active:", user.is_active)
+
+        except (
+            User.DoesNotExist,
+            ValueError,
+            TypeError,
+            OverflowError
+        ):
+            print("RESULT: UID decoding or user lookup failed")
             return error("Invalid activation link.")
 
-        if not default_token_generator.check_token(user, token):
+        token_valid = default_token_generator.check_token(
+            user, token
+        )
+
+        print("Token valid:", token_valid)
+        print("=====================================\n")
+
+        if not token_valid:
             return error("Token is invalid or has expired.")
 
         try:
             validate_password(password, user=user)
+
         except DjangoValidationError as exc:
             return password_error(exc)
 
-        # Identity fields (email/username) are deliberately NOT changeable here.
-        # Changing the password also invalidates the token, making it single-use.
         user.set_password(password)
         user.is_active = True
+
         user.save(update_fields=["password", "is_active"])
 
-        return Response({"message": "Account activated successfully! You can now log in."})
+        return Response({
+            "message": "Account activated successfully! You can now log in."
+        })
 
 
 # =============================================================================

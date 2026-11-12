@@ -31,7 +31,7 @@ SECRET_KEY = 'django-insecure-%^89xwgdyg^xipv)kba2nrc3tx6uvn#7g_9+(1!5cbz7s-5tyu
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ['localhost', '127.0.0.1']
 
 
 # Application definition
@@ -167,13 +167,17 @@ SIMPLE_JWT = {
     'UPDATE_LAST_LOGIN': True
 }
 
-EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+GOOGLE_CLIENT_ID = os.getenv('GOOGLE_CLIENT_ID')
+GOOGLE_CLIENT_SECRET = os.getenv('GOOGLE_CLIENT_SECRET')
+EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER')
+EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD')
+
+# Fallback to console backend if SMTP credentials aren't set in .env
+
+EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+
+
 EMAIL_HOST = 'smtp.gmail.com'
 EMAIL_PORT = 587
 EMAIL_USE_TLS = True
-EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER')
-EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD')
-DEFAULT_FROM_EMAIL = f'SmartAcademic Support <{os.getenv("EMAIL_HOST_USER")}>'
-
-GOOGLE_CLIENT_ID = os.getenv('GOOGLE_CLIENT_ID')
-GOOGLE_CLIENT_SECRET = os.getenv('GOOGLE_CLIENT_SECRET')
+DEFAULT_FROM_EMAIL = f'SmartAcademic Support <{EMAIL_HOST_USER or "support@smartacademic.local"}>'

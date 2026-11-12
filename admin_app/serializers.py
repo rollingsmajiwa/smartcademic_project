@@ -44,6 +44,21 @@ class StudentProfileSerializer(serializers.ModelSerializer):
             'classroom_name',
             'raw_password'
         ]
+        extra_kwargs = {
+            'admission_number': {
+                'validators': [],  # Disables default unique validator to prevent false duplicate errors on update
+            }
+        }
+
+    def validate_admission_number(self, value):
+        # Exclude the current student instance when validating uniqueness during update
+        instance = getattr(self, 'instance', None)
+        qs = StudentProfile.objects.filter(admission_number=value)
+        if instance:
+            qs = qs.exclude(pk=instance.pk)
+        if qs.exists():
+            raise serializers.ValidationError("A student profile with this admission number already exists.")
+        return value
 
     def create(self, validated_data):
         user_data = validated_data.pop('user', {})
@@ -103,6 +118,21 @@ class TeacherProfileSerializer(serializers.ModelSerializer):
             'department', 
             'raw_password'
         ]
+        extra_kwargs = {
+            'tsc_number': {
+                'validators': [], # Disables DRF default strict UniqueValidator that causes update bugs
+            }
+        }
+
+    def validate_tsc_number(self, value):
+        # Exclude the current instance when checking for duplicates during updates
+        instance = getattr(self, 'instance', None)
+        qs = TeacherProfile.objects.filter(tsc_number=value)
+        if instance:
+            qs = qs.exclude(pk=instance.pk)
+        if qs.exists():
+            raise serializers.ValidationError("A teacher profile with this TSC number already exists.")
+        return value
 
     def create(self, validated_data):
         user_info = validated_data.pop('user', {})
@@ -113,12 +143,9 @@ class TeacherProfileSerializer(serializers.ModelSerializer):
         if not email and 'email' in validated_data:
             email = validated_data.get('email', '')
 
-        # Use email as username if provided, ensuring uniqueness for login lookups
         username = email if email else (first_name.strip() if first_name else 'teacher')
-        
         password = validated_data.get('raw_password', 'password123')
         
-        # Create core Django user with is_staff=True for OTP authentication
         user = User.objects.create_user(
             username=username,
             first_name=first_name,
@@ -141,9 +168,9 @@ class TeacherProfileSerializer(serializers.ModelSerializer):
             user.last_name = user_info['last_name']
         if 'email' in user_info:
             user.email = user_info['email']
-            user.username = user_info['email'] # Keep username aligned with email
+            user.username = user_info['email']
             
-        user.is_staff = True # Enforce staff access status
+        user.is_staff = True 
         
         raw_pwd = validated_data.get('raw_password')
         if raw_pwd:

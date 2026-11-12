@@ -1,6 +1,13 @@
 from django.db import models
+from datetime import time
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+from rest_framework.permissions import IsAuthenticated
+from django.utils import timezone
 from django.contrib.auth.models import User
-from admin_app.models import StudentProfile
+from admin_app.models import TeacherProfile, StudentProfile
+
 
 # Create your models here.
 
@@ -53,16 +60,27 @@ class Exam_post(models.Model):
 
 
 # Model for teacher daily attendance
+
+
+
 class TeacherAttendance(models.Model):
-    """Stores daily check-in and check-out time and status for teachers"""
-    teacher = models.ForeignKey('Teacher', on_delete=models.CASCADE, related_name='attendances')
-    date = models.DateField(auto_now_add=True)
+    """Stores daily check-in, check-out time, week, month, and status for teachers"""
+    teacher = models.ForeignKey(TeacherProfile, on_delete=models.CASCADE, related_name='attendances')
+    date = models.DateField(default=timezone.now)
     check_in_time = models.DateTimeField(null=True, blank=True)
     check_out_time = models.DateTimeField(null=True, blank=True)
     status = models.CharField(max_length=20, default='Absent')
+    week_number = models.IntegerField(null=True, blank=True)
+    month = models.CharField(max_length=20, null=True, blank=True)
+
+    def save(self, *args, **kwargs):
+        if self.date:
+            self.week_number = self.date.isocalendar()[1]
+            self.month = self.date.strftime('%B %Y')
+        super().save(*args, **kwargs)
 
     def __str__(self):
-        return f"{self.teacher.name} - {self.date} ({self.status})"
+        return f"{self.teacher.surname} - {self.date} [{self.status}] (Week {self.week_number})"
 
 
 # Model for manual marks entry

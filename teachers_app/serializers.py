@@ -58,23 +58,36 @@ class ExamGradeSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['student', 'exam', 'submitted_at']
 
+
+
+  
+
+
 class TeacherAttendanceSerializer(serializers.ModelSerializer):
+    
     teacher_name = serializers.SerializerMethodField()
     surname = serializers.CharField(source='teacher.surname', read_only=True)
     first_name = serializers.CharField(source='teacher.user.first_name', read_only=True)
     tsc_number = serializers.CharField(source='teacher.tsc_number', read_only=True)
+
     
+    teacher_id = serializers.IntegerField(source='teacher.id', read_only=True)
+    timestamp = serializers.DateTimeField(source='check_in_time', read_only=True)
+    clock_out = serializers.DateTimeField(source='check_out_time', read_only=True)
+
     class Meta:
         model = TeacherAttendance
         fields = '__all__'
 
     def get_teacher_name(self, obj):
-        if obj.teacher:
-            first = obj.teacher.user.first_name or ''
-            middle = obj.teacher.surname or ''
-            last = obj.teacher.user.last_name or ''
-            return f"{first} {middle} {last}".strip()
-        return "Unknown Teacher"
+        if not obj.teacher:
+            return "Unknown Teacher"
+        parts = [
+            obj.teacher.user.first_name,
+            obj.teacher.surname,
+            obj.teacher.user.last_name,
+        ]
+        return " ".join(p for p in parts if p)
 
 class StudentMarkSerializer(serializers.ModelSerializer):
     class Meta:

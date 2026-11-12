@@ -4,7 +4,7 @@ from .views import (
     TeacherAssignmentSubmissionView, TeacherExamSubmissionView, 
     AssignmentGradeSubmissionView, ExamGradeSubmissionView, 
     GeoFenceAttendanceView, ClassAnalysisView, ClassGradeTableView, 
-    BulkMarkSaveView, TeacherOverviewAPIView, TeacherListView, TeacherRevisionsView
+    BulkMarkSaveView, TeacherOverviewAPIView, TeacherListView, TeacherRevisionsView,ClassListView
 )
 
 urlpatterns = [
@@ -34,4 +34,5 @@ urlpatterns = [
     path('grades/analysis/<str:class_name>/<str:term>/', ClassAnalysisView.as_view(), name='class-analysis-report'),
     
     path('list/', TeacherListView.as_view(), name='teacher-list'),
+    path('classes/', ClassListView.as_view(), name='teacher-class-list'),
 ]
