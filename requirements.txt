@@ -46,3 +46,4 @@ tzdata==2026.5
 urllib3==2.8.0
 websockets==17.4
 xlsxwriter==3.3.1
+gunicorn==27.0.1
