@@ -47,7 +47,7 @@ Open a Pull Request (PR): Describe your changes clearly and link any related iss
 a. Clone this repository on your local machine:
 
 ```Bash
-git clone [https://github.com/rollingsmajiwa/smartacademic-backend.git](https://github.com/rollingsmajiwa/smartacademic-backend.git)
+git clone https://github.com/rollingsmajiwa/smartacademic_project.git
 ```
 ```bash
 cd smartacademic-backend
