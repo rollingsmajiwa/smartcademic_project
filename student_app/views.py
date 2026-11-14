@@ -11,6 +11,112 @@ from .models import StudyMaterial, Assignment, AssignmentSubmission, Exam, ExamS
 from .serializers import (StudyMaterialSerializer, AssignmentSerializer, AssignmentSubmissionSerializer, 
     ExamSerializer, ExamSubmissionSerializer, StudentsAssignmentSubmissionSerializer, StudentExamSubmissionSerializer
 )
+import os
+from pypdf import PdfReader
+from google import genai
+from google.genai import types
+from rest_framework.views import APIView
+from rest_framework import status
+from student_app.models import StudyMaterial 
+
+class SocraticRevisionTutorView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        material_id = request.data.get('material_id')
+        student_question = request.data.get('question')
+
+        if not student_question:
+            return Response({"error": "Please enter a question."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if not material_id:
+            return Response({"error": "No revision material was selected."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # 1. Fetch the specific revision material uploaded by the teacher
+        # (must be the SAME model that Study_material_list_view returns)
+        try:
+            material = TeacherRevisionMaterial.objects.get(id=material_id)
+        except (TeacherRevisionMaterial.DoesNotExist, ValueError):
+            return Response({"error": "Revision material not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        material_title = getattr(material, 'title', 'this revision material')
+        material_description = getattr(material, 'description', '') or 'No text notes provided.'
+
+        # 2. Extract text from the uploaded file (PDF or PPTX) if present
+        file_text_content = ""
+        material_file = getattr(material, 'file', None)
+        if material_file:
+            try:
+                file_path = material_file.path
+                if os.path.exists(file_path):
+                    ext = os.path.splitext(file_path)[1].lower()
+
+                    if ext == '.pdf':
+                        reader = PdfReader(file_path)
+                        for page in reader.pages:
+                            extracted = page.extract_text()
+                            if extracted:
+                                file_text_content += extracted + "\n"
+
+                    elif ext == '.pptx':
+                        # pip install python-pptx
+                        from pptx import Presentation
+                        prs = Presentation(file_path)
+                        for slide in prs.slides:
+                            for shape in slide.shapes:
+                                if getattr(shape, 'has_text_frame', False) and shape.has_text_frame:
+                                    file_text_content += shape.text_frame.text + "\n"
+
+                    else:
+                        print(f"Warning: unsupported file type for tutor: {ext}")
+            except Exception as file_err:
+                print(f"Warning: Could not parse file text: {file_err}")
+
+        if not file_text_content.strip():
+            file_text_content = "(No readable text could be extracted from the file. Rely on the title and teacher's notes only.)"
+
+        # 3. Build strict Socratic system instructions including the extracted text
+        system_rules = f"""
+        You are the SmartAcademic Socratic Study Tutor ("Mwalimu AI").
+        You are helping a student revise the material titled: "{material_title}".
+        Teacher's description/notes: "{material_description}"
+        
+        EXTRACTED DOCUMENT CONTENT:
+        {file_text_content[:10000]}
+
+        STRICT ACADEMIC INTEGRITY RULES:
+        1. NEVER give direct answers to assignment questions, exam questions, or calculations.
+        2. Use the Socratic method: respond with guiding hints, conceptual explanations, and a follow-up question that leads the student to figure out the answer themselves.
+        3. Base your explanations strictly on the provided revision material above. If the student asks about unrelated topics, remind them you can only guide them through "{material_title}".
+        4. Keep responses concise, encouraging, and easy to read.
+        """
+
+        try:
+            api_key = os.environ.get("GEMINI_API_KEY")
+            if not api_key:
+                print("Gemini API Error: GEMINI_API_KEY is not set.")
+                return Response({"error": "The AI tutor is not configured yet. Please contact your teacher or admin."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+            client = genai.Client(api_key=api_key)
+
+            # 4. Generate content using a valid, working Gemini model name
+            response = client.models.generate_content(
+                model="gemini-3.6-flash",
+                contents=student_question,
+                config=types.GenerateContentConfig(
+                    system_instruction=system_rules,
+                    temperature=0.4,
+                )
+            )
+
+            return Response({"reply": response.text}, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            err_msg = str(e)
+            print(f"Gemini API Error: {err_msg}")
+            if "503" in err_msg or "UNAVAILABLE" in err_msg:
+                return Response({"reply": "Mwalimu AI is experiencing high demand right now. Please try your question again in a moment!"}, status=status.HTTP_200_OK)
+            return Response({"error": "Sorry, I had trouble reading the notes right now. Please try again."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 # API view for Student Overview
 class StudentOverviewAPIView(APIView):

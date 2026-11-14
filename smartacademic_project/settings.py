@@ -160,7 +160,7 @@ MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 SIMPLE_JWT = {
     'AUTH_HEADER_TYPES': ('Bearer',),
     'TOKEN_OBTAIN_SERIALIZER': 'accounts.serializers.CustomTokenObtainPairSerializer',
-    'ACCESS_TOKEN_LIFETIME' : timedelta(minutes=15),
+    'ACCESS_TOKEN_LIFETIME' : timedelta(days=1),
     'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
     'ROTATE_REFRESH_TOKEN': True,
     'BLACKLIST_AFTER_ROTATION': True,
@@ -171,6 +171,11 @@ GOOGLE_CLIENT_ID = os.getenv('GOOGLE_CLIENT_ID')
 GOOGLE_CLIENT_SECRET = os.getenv('GOOGLE_CLIENT_SECRET')
 EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER')
 EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD')
+
+
+GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
+GEMINI_PROJECT_NAME = os.getenv('GEMINI_PROJECT_NAME')
+GEMINI_PROJECT_NUMBER = os.getenv('GEMINI_PROJECT_NUMBER')
 
 # Fallback to console backend if SMTP credentials aren't set in .env
 

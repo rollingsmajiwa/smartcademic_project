@@ -1,5 +1,6 @@
 from django.urls import path
-from .views import (Study_material_list_view, Assignment_list_view, Exam_list_view, Submit_assignment_view, Submit_exam_view, StudentsSubmittedExamView, StudentsSubmittedAssignmentView, StudentOverviewAPIView
+from .views import (Study_material_list_view, Assignment_list_view, Exam_list_view, Submit_assignment_view, Submit_exam_view, StudentsSubmittedExamView, StudentsSubmittedAssignmentView, StudentOverviewAPIView,
+                    SocraticRevisionTutorView
 )
 
 urlpatterns = [
@@ -11,4 +12,5 @@ urlpatterns = [
     path('my-assignment-submissions/', StudentsSubmittedAssignmentView.as_view(), name='student-view-submitted-assignment-results' ),
     path('my-exam-submission/', StudentsSubmittedExamView.as_view(), name='student-view-submitted-exam-results'),
     path('overview/', StudentOverviewAPIView.as_view(), name='student-overview'),
+    path('ai-tutor/', SocraticRevisionTutorView.as_view(), name='socratic-ai-tutor'),
 ]
