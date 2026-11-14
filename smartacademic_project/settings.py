@@ -52,9 +52,15 @@ INSTALLED_APPS = [
     'corsheaders',
     'rest_framework.authtoken',
 ]
+FRONTEND_URL = os.getenv('FRONTEND_URL', 'https://smartacademic-project-frontend.vercel.app')
 
 CORS_ALLOWED_ORIGINS = [
-    "http://localhost:5173", # Matches Vite React dev server port
+    "http://localhost:5173",
+    FRONTEND_URL,
+]
+
+CSRF_TRUSTED_ORIGINS = [
+    FRONTEND_URL,
 ]
 
 MIDDLEWARE = [
@@ -153,7 +159,7 @@ REST_FRAMEWORK = {
         "password_set": "10/hour",
     },
 }
-FRONTEND_URL = "http://localhost:5173"
+FRONTEND_URL = os.getenv('FRONTEND_URL', 'https://smartacademic-project-frontend.vercel.app')
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
