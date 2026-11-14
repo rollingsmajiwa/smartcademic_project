@@ -52,7 +52,7 @@ INSTALLED_APPS = [
     'corsheaders',
     'rest_framework.authtoken',
 ]
-FRONTEND_URL = os.getenv('FRONTEND_URL', 'https://smartacademic-project-frontend.vercel.app')
+FRONTEND_URL = os.getenv('FRONTEND_URL', 'https://smartcademic-project-frontend.vercel.app')
 
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
@@ -91,7 +91,7 @@ TEMPLATES = [
     },
 ]
 
-WSGI_APPLICATION = 'smartacademic_project.wsgi.application'
+WSGI_APPLICATION = 'smartcademic_project.wsgi.application'
 
 
 # Database
@@ -159,7 +159,7 @@ REST_FRAMEWORK = {
         "password_set": "10/hour",
     },
 }
-FRONTEND_URL = os.getenv('FRONTEND_URL', 'https://smartacademic-project-frontend.vercel.app')
+FRONTEND_URL = os.getenv('FRONTEND_URL', 'https://smartacdemic-project-frontend.vercel.app')
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
