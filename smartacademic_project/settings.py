@@ -186,3 +186,5 @@ EMAIL_HOST = 'smtp.gmail.com'
 EMAIL_PORT = 587
 EMAIL_USE_TLS = True
 DEFAULT_FROM_EMAIL = f'SmartAcademic Support <{EMAIL_HOST_USER or "support@smartacademic.local"}>'
+
+STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
