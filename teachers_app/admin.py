@@ -1,14 +1,6 @@
 from django.contrib import admin
-from .models import Teacher, Assignment_post, Exam_post, TeacherAttendance, StudentMark
+from .models import Teacher, Assignment_post, Exam_post, TeacherAttendance, StudentMark, TeacherRevisionMaterial
 
-
-
-
-from .models import Assignment_post, Exam_post, TeacherRevisionMaterial
-
-admin.site.register(Assignment_post)
-admin.site.register(Exam_post)
-admin.site.register(TeacherRevisionMaterial)
 
 
 # Register your models here.
@@ -35,3 +27,7 @@ class StudentMarkAdmin(admin.ModelAdmin):
     list_display = ('student', 'subject', 'marks', 'class_name', 'term', 'year', 'teacher', 'updated_at')
     list_filter = ('class_name', 'term', 'year', 'subject')
     search_fields = ('student__admission_number', 'student__user__username', 'student__user__first_name', 'student__user__last_name')
+
+@admin.register(TeacherRevisionMaterial)
+class TeacherRevisionMaterialAdmin(admin.ModelAdmin):
+    pass
