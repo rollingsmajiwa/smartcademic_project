@@ -157,6 +157,9 @@ SIMPLE_JWT = {
     'UPDATE_LAST_LOGIN': True,
 }
 
+# --- Resend Email Configuration ---
+RESEND_API_KEY = os.getenv('RESEND_API_KEY', '')
+
 # ---------------------------------------------------------------------
 # Third-party keys
 # ---------------------------------------------------------------------

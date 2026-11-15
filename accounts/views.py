@@ -412,6 +412,14 @@ class StudentLoginView(PublicAPIView):
 # =============================================================================
 
 
+import resend
+
+
+logger = logging.getLogger(__name__)
+
+# Initialize Resend API key
+resend.api_key = getattr(settings, 'RESEND_API_KEY', '')
+
 class AdminInviteUserView(APIView):
     permission_classes = [permissions.IsAuthenticated, IsAdminRole]
 
@@ -429,7 +437,7 @@ class AdminInviteUserView(APIView):
             return error("A user with this email already exists.")
 
         try:
-            # 1. Keep database operations fast inside atomic transaction
+            # 1. Create the user in database safely
             with transaction.atomic():
                 user = User.objects.create_user(username=email, email=email, is_active=False)
                 attach_role_profiles(user, role)
@@ -438,22 +446,27 @@ class AdminInviteUserView(APIView):
             token = default_token_generator.make_token(user)
             link = f"{settings.FRONTEND_URL}/signup?uid={uid}&token={token}"
 
-            # 2. Handle email sending outside transaction with strict socket timeout
-            email_sent = True
+            # 2. Send email via Resend HTTP API (No SMTP / No Port Blocking)
+            email_sent = False
             try:
-                socket.setdefaulttimeout(5)
-                send_mail(
-                    subject="Welcome to SmartAcademic - Set Your Password",
-                    message=(
-                        f"You have been invited as a {role}. "
-                        f"Click the link below to set your password and activate your account:\n\n{link}"
-                    ),
-                    from_email=None,
-                    recipient_list=[email],
-                    fail_silently=False,
-                )
+                params = {
+                    "from": "SmartAcademic <onboarding@resend.dev>",  # Switch to your verified domain later if desired
+                    "to": [email],
+                    "subject": "Welcome to SmartAcademic - Set Your Password",
+                    "html": f"""
+                        <div style="font-family: Arial, sans-serif; color: #10002b; padding: 20px;">
+                            <h2 style="color: #10002b;">Welcome to SmartAcademic</h2>
+                            <p>You have been invited to join as a <b>{role}</b>.</p>
+                            <p>Click the button below to set your password and activate your account:</p>
+                            <a href="{link}" style="background-color: #c77dff; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: bold; margin: 15px 0;">Activate Account</a>
+                            <p style="color: #666; font-size: 12px;">Or copy and paste this link into your browser:<br>{link}</p>
+                        </div>
+                    """
+                }
+                resend.Emails.send(params)
+                email_sent = True
             except Exception as mail_err:
-                logger.warning("SMTP failed to send email to %s: %s", email, mail_err)
+                logger.warning("Resend HTTP API failed for %s: %s", email, mail_err)
                 email_sent = False
 
         except Exception:
@@ -465,14 +478,12 @@ class AdminInviteUserView(APIView):
 
         return Response(
             {
-                "message": f"Invitation successfully created for {email}." if email_sent else "User created, but email failed to send. Copy the link below.",
+                "message": f"Invitation successfully emailed to {email}!" if email_sent else "User created, but email dispatch failed. Copy the link below.",
                 "email_sent": email_sent,
-                "invite_link": link,  # Fallback so admin can always copy the link on Render
+                "invite_link": link,
             },
             status=status.HTTP_201_CREATED,
         )
-
-
 
 class SetPasswordView(PublicAPIView):
     throttle_scope = "password_set"
