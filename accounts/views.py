@@ -41,6 +41,10 @@ from admin_app.models import StudentProfile, TeacherProfile
 from .models import UserProfile
 from .serializers import AdminUserManagementSerializer
 
+import socket
+
+
+
 User = get_user_model()
 logger = logging.getLogger(__name__)
 
@@ -406,6 +410,8 @@ class StudentLoginView(PublicAPIView):
 # =============================================================================
 # 4. ADMIN INVITATION & ACCOUNT ACTIVATION (Set password)
 # =============================================================================
+
+
 class AdminInviteUserView(APIView):
     permission_classes = [permissions.IsAuthenticated, IsAdminRole]
 
@@ -423,16 +429,19 @@ class AdminInviteUserView(APIView):
             return error("A user with this email already exists.")
 
         try:
-            # If the email fails, the whole transaction rolls back, so no
-            # orphaned inactive account is left behind.
+            # 1. Keep database operations fast inside atomic transaction
             with transaction.atomic():
                 user = User.objects.create_user(username=email, email=email, is_active=False)
                 attach_role_profiles(user, role)
 
-                uid = urlsafe_base64_encode(force_bytes(user.pk))
-                token = default_token_generator.make_token(user)
-                link = f"{settings.FRONTEND_URL}/signup?uid={uid}&token={token}"
+            uid = urlsafe_base64_encode(force_bytes(user.pk))
+            token = default_token_generator.make_token(user)
+            link = f"{settings.FRONTEND_URL}/signup?uid={uid}&token={token}"
 
+            # 2. Handle email sending outside transaction with strict socket timeout
+            email_sent = True
+            try:
+                socket.setdefaulttimeout(5)
                 send_mail(
                     subject="Welcome to SmartAcademic - Set Your Password",
                     message=(
@@ -443,15 +452,23 @@ class AdminInviteUserView(APIView):
                     recipient_list=[email],
                     fail_silently=False,
                 )
+            except Exception as mail_err:
+                logger.warning("SMTP failed to send email to %s: %s", email, mail_err)
+                email_sent = False
+
         except Exception:
-            logger.exception("Failed to create/invite user %s", email)
+            logger.exception("Failed to create user %s", email)
             return error(
-                "Could not send the invitation. Please try again.",
+                "Could not create user invitation. Please try again.",
                 status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
         return Response(
-            {"message": f"Invitation successfully sent to {email}."},
+            {
+                "message": f"Invitation successfully created for {email}." if email_sent else "User created, but email failed to send. Copy the link below.",
+                "email_sent": email_sent,
+                "invite_link": link,  # Fallback so admin can always copy the link on Render
+            },
             status=status.HTTP_201_CREATED,
         )
 
