@@ -39,6 +39,7 @@ INSTALLED_APPS = [
     'student_app',
     'teachers_app',
     'admin_app',
+    'django_cleanup.apps.CleanupConfig',
 ]
 
 MIDDLEWARE = [

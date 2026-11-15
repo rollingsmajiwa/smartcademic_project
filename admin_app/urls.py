@@ -10,10 +10,17 @@ from .views import (
     AdminAssignmentPostListView,
     AdminExamPostListView,
     AdminAssignmentSubmissionListView,
-    AdminExamSubmissionListView
+    AdminExamSubmissionListView,
+    AdminAssignmentPostDeleteView,
+    AdminExamPostDeleteView,AdminRevisionMaterialDeleteView
 )
 
 urlpatterns = [
+    path('assignments/<int:pk>/', AdminAssignmentPostDeleteView.as_view()),
+    path('exams/<int:pk>/', AdminExamPostDeleteView.as_view()),
+    path('materials/<int:pk>/', AdminRevisionMaterialDeleteView.as_view()),
+
+
     # Classroom endpoints
     path('classrooms/', ClassroomListCreateView.as_view(), name='admin-classroom-list-create'),
     path('classrooms/<int:pk>/', ClassroomDetailView.as_view(), name='admin-classroom-detail'),

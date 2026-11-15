@@ -27,6 +27,26 @@ from student_app.models import (
 from teachers_app.models import TeacherAttendance
 
 
+
+from accounts.views import IsAdminRole
+from teachers_app.models import Assignment_post, Exam_post, TeacherRevisionMaterial
+
+
+class AdminAssignmentPostDeleteView(generics.DestroyAPIView):
+    queryset = Assignment_post.objects.all()
+    permission_classes = [IsAdminRole]
+
+
+class AdminExamPostDeleteView(generics.DestroyAPIView):
+    queryset = Exam_post.objects.all()
+    permission_classes = [IsAdminRole]
+
+
+class AdminRevisionMaterialDeleteView(generics.DestroyAPIView):
+    queryset = TeacherRevisionMaterial.objects.all()
+    permission_classes = [IsAdminRole]
+
+
 # ==========================================
 # CLASSROOM VIEWS
 # ==========================================

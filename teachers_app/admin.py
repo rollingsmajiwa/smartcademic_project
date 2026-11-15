@@ -2,6 +2,15 @@ from django.contrib import admin
 from .models import Teacher, Assignment_post, Exam_post, TeacherAttendance, StudentMark
 
 
+
+
+from .models import Assignment_post, Exam_post, TeacherRevisionMaterial
+
+admin.site.register(Assignment_post)
+admin.site.register(Exam_post)
+admin.site.register(TeacherRevisionMaterial)
+
+
 # Register your models here.
 @admin.register(Teacher)
 class TeacherAdmin(admin.ModelAdmin):
