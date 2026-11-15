@@ -1,8 +1,8 @@
-
 from datetime import time
 
 from django.utils import timezone
 from rest_framework import generics
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAdminUser
 
 from .models import Classroom, StudentProfile, TeacherProfile
@@ -58,6 +58,15 @@ class StudentDetailView(generics.RetrieveUpdateDestroyAPIView):
     serializer_class = StudentProfileSerializer
     permission_classes = [IsAdminUser]
 
+    def perform_destroy(self, instance):
+        user = instance.user
+        if user.pk == self.request.user.pk:
+            raise PermissionDenied("You cannot delete your own account.")
+        if user.is_superuser:
+            raise PermissionDenied("Cannot delete a superuser here.")
+        # Deleting the User cascades to StudentProfile and UserProfile
+        user.delete()
+
 
 # ==========================================
 # TEACHER PROFILE VIEWS
@@ -73,6 +82,15 @@ class TeacherDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = TeacherProfile.objects.all()
     serializer_class = TeacherProfileSerializer
     permission_classes = [IsAdminUser]
+
+    def perform_destroy(self, instance):
+        user = instance.user
+        if user.pk == self.request.user.pk:
+            raise PermissionDenied("You cannot delete your own account.")
+        if user.is_superuser:
+            raise PermissionDenied("Cannot delete a superuser here.")
+        # Deleting the User cascades to TeacherProfile and UserProfile
+        user.delete()
 
 
 # ==========================================
