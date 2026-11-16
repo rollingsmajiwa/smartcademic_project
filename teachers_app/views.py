@@ -222,7 +222,7 @@ LAT_FENCE = -1.2647
 LON_FENCE = 36.8101
 
 # Allowed distance from school: 500 metres
-RADIUS_METERS = 500
+RADIUS_METERS = 20000
 
 # Attendance cutoff
 ON_TIME_CUTOFF = time(7, 0)
