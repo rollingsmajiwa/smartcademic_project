@@ -218,8 +218,8 @@ class Teacher_profile_view(APIView):
 # ==========================================
 
 # School GPS coordinates
-LAT_FENCE = -1.1701575
-LON_FENCE = 36.82750325
+LAT_FENCE = -1.2647
+LON_FENCE = 36.8101
 
 # Allowed distance from school: 500 metres
 RADIUS_METERS = 500
