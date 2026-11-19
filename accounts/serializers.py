@@ -26,22 +26,48 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
 
 
 class AdminUserManagementSerializer(serializers.ModelSerializer):
-    """Used by admins to list users and to create them with a given role."""
+    """Used by admins to list, create, and update users with role & approval state."""
 
     role = serializers.ChoiceField(choices=UserProfile.ROLE_CHOICES, source='profile.role')
-    password = serializers.CharField(write_only=True, style={'input_type': 'password'})
+    is_admin_approved = serializers.BooleanField(
+        source='profile.is_admin_approved',
+        required=False,
+    )
+    password = serializers.CharField(
+        write_only=True,
+        required=False,
+        allow_blank=True,
+        style={'input_type': 'password'},
+    )
 
     class Meta:
         model = User
-        fields = ('id', 'username', 'email', 'password', 'role')
+        fields = (
+            'id',
+            'username',
+            'email',
+            'first_name',
+            'last_name',
+            'is_active',
+            'password',
+            'role',
+            'is_admin_approved',
+        )
+        read_only_fields = ('id',)
 
     def validate_email(self, value):
         value = value.strip().lower()
-        if value and User.objects.filter(email__iexact=value).exists():
-            raise serializers.ValidationError('A user with this email already exists.')
+        if value:
+            qs = User.objects.filter(email__iexact=value)
+            if self.instance is not None:
+                qs = qs.exclude(pk=self.instance.pk)
+            if qs.exists():
+                raise serializers.ValidationError('A user with this email already exists.')
         return value
 
     def validate_password(self, value):
+        if not value:
+            return value
         try:
             run_password_validators(value)
         except DjangoValidationError as exc:
@@ -49,23 +75,61 @@ class AdminUserManagementSerializer(serializers.ModelSerializer):
         return value
 
     def validate(self, attrs):
-        role = attrs.get('profile', {}).get('role')
+        profile_data = attrs.get('profile') or {}
+        role = profile_data.get('role')
         request = self.context.get('request')
+
+        if self.instance is None and not attrs.get('password'):
+            raise serializers.ValidationError({'password': 'Password is required when creating a user.'})
+
         if role == 'admin' and not (request and request.user.is_superuser):
-            raise serializers.ValidationError({'role': 'Only superusers can create admins.'})
+            raise serializers.ValidationError({'role': 'Only superusers can assign the admin role.'})
+
         return attrs
 
     @transaction.atomic
     def create(self, validated_data):
         from .views import attach_role_profiles
 
-        role = validated_data.pop('profile')['role']
+        profile_data = validated_data.pop('profile', {})
+        role = profile_data.get('role', 'student')
+        approved = profile_data.get('is_admin_approved', True)
+
         user = User.objects.create_user(
             username=validated_data['username'],
             email=validated_data.get('email', ''),
+            first_name=validated_data.get('first_name', ''),
+            last_name=validated_data.get('last_name', ''),
             password=validated_data['password'],
         )
-        # Creates UserProfile, the teacher/student profile, and sets the
-        # staff flag correctly for the role.
-        attach_role_profiles(user, role)
+        attach_role_profiles(user, role, is_admin_approved=approved)
         return user
+
+    @transaction.atomic
+    def update(self, instance, validated_data):
+        from .views import attach_role_profiles
+
+        profile_data = validated_data.pop('profile', {})
+        password = validated_data.pop('password', None)
+
+        for attr, val in validated_data.items():
+            setattr(instance, attr, val)
+
+        if password:
+            instance.set_password(password)
+
+        instance.save()
+
+        profile, _ = UserProfile.objects.get_or_create(user=instance)
+        role = profile_data.get('role', profile.role)
+        attach_role_profiles(instance, role)
+
+        # Updating a learner or teacher by an admin marks them reviewed/approved
+        # unless explicitly passed as False.
+        if 'is_admin_approved' in profile_data:
+            profile.is_admin_approved = profile_data['is_admin_approved']
+        else:
+            profile.is_admin_approved = True
+        profile.save(update_fields=['is_admin_approved'])
+
+        return instance

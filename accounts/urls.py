@@ -1,15 +1,18 @@
 from django.urls import path
+
 from .views import (
-    StudentRegisterView,
-    StudentLoginView,
-    SendUniversalOTPView,
-    VerifyUniversalOTPView,
-    AdminUserListCreateView,
+    AdminBulkInviteUserView,
+    AdminInviteUserView,
     AdminUserDeleteView,
+    AdminUserDetailUpdateView,
+    AdminUserListCreateView,
+    EmailPasswordLoginView,
     GoogleAuthView,
-    AdminInviteUserView,   
-    SetPasswordView,        
-    EmailPasswordLoginView  
+    SendUniversalOTPView,
+    SetPasswordView,
+    StudentLoginView,
+    StudentRegisterView,
+    VerifyUniversalOTPView,
 )
 
 urlpatterns = [
@@ -29,8 +32,10 @@ urlpatterns = [
 
     # Admin Management & Invitation Routes
     path('admin/users/', AdminUserListCreateView.as_view(), name='admin-user-list-create'),
-    path('admin/users/<int:id>/', AdminUserDeleteView.as_view(), name='admin-user-delete'),
-    path('admin/invite/', AdminInviteUserView.as_view(), name='admin-invite'), # <--- Added
+    path('admin/users/<int:id>/', AdminUserDetailUpdateView.as_view(), name='admin-user-detail-update'),
+    path('admin/users/<int:id>/delete/', AdminUserDeleteView.as_view(), name='admin-user-delete'),
+    path('admin/invite/', AdminInviteUserView.as_view(), name='admin-invite'),
+    path('admin/invite/bulk/', AdminBulkInviteUserView.as_view(), name='admin-invite-bulk'),
 
     # Google Auth Route
     path('auth/google/', GoogleAuthView.as_view(), name='google_auth'),

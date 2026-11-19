@@ -2,20 +2,21 @@
 Authentication views for SmartAcademic.
 
 Sections:
-  0. Roles and permissions
-  1. Shared helpers (responses, tokens, OTP, admission numbers)
-  2. Teacher & admin login (email + OTP)
-  3. Student registration & login (admission number + password)
-  4. Admin invitations & account activation
-  5. Email + password login
-  6. Google OAuth
-  7. Admin user management
+0. Roles and permissions
+1. Shared helpers (responses, tokens, OTP, admission numbers, admin approval)
+2. Teacher & admin login (email + OTP)
+3. Student registration & login (admission number + password)
+4. Admin invitations (single & bulk), account activation & admin reminders
+5. Email + password login
+6. Google OAuth
+7. Admin user management
 """
 import hashlib
 import logging
 import secrets
 from typing import Optional
 
+import resend
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
@@ -23,7 +24,7 @@ from django.contrib.auth.tokens import default_token_generator
 from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.mail import send_mail
-from django.db import transaction
+from django.db import models, transaction
 from django.utils.crypto import constant_time_compare, salted_hmac
 from django.utils.encoding import force_bytes, force_str
 from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
@@ -41,12 +42,14 @@ from admin_app.models import StudentProfile, TeacherProfile
 from .models import UserProfile
 from .serializers import AdminUserManagementSerializer
 
-import socket
-
-
-
 User = get_user_model()
 logger = logging.getLogger(__name__)
+
+# Initialize Resend API key
+resend.api_key = getattr(settings, "RESEND_API_KEY", "")
+RESEND_FROM_EMAIL = getattr(
+    settings, "RESEND_FROM_EMAIL", "SmartAcademic <onboarding@resend.dev>"
+)
 
 
 # =============================================================================
@@ -58,23 +61,22 @@ STUDENT = "student"
 
 ALL_ROLES = frozenset({ADMIN, TEACHER, STUDENT})
 STAFF_ROLES = frozenset({ADMIN, TEACHER})  # roles allowed through OTP / Google login
+RESTRICTED_ROLES = frozenset({STUDENT, TEACHER})  # require admin update after activation
+
+ADMIN_APPROVAL_REQUIRED_MSG = (
+    "Your account is activated, but an administrator must review and update your "
+    "profile before you can log in."
+)
 
 
 def get_user_role(user) -> Optional[str]:
     """Resolve a user's role. This is the only place roles are decided.
 
     Priority:
-      1. Superuser                           -> admin
-      2. UserProfile.role (a valid role)     -> that role   (source of truth)
-      3. A TeacherProfile / StudentProfile   -> teacher / student
-      4. is_staff, only when nothing else is known -> admin
-
-    `is_staff` is deliberately last: it is a Django-admin-site flag, and
-    accounts created by hand often have it set. If it outranked the profile
-    role, teachers would be treated as admins.
-
-    Direct queries are used instead of reverse attributes (user.teacherprofile)
-    so this works whatever `related_name` the profile models use.
+    1. Superuser                           -> admin
+    2. UserProfile.role (a valid role)     -> that role   (source of truth)
+    3. A TeacherProfile / StudentProfile   -> teacher / student
+    4. is_staff, only when nothing else is known -> admin
     """
     if user is None or not getattr(user, "pk", None):
         return None
@@ -98,11 +100,7 @@ def get_user_role(user) -> Optional[str]:
 
 
 class HasRole(permissions.BasePermission):
-    """Allow authenticated, active users whose *database* role is allowed.
-
-    The role is read from the database on every request, not trusted from the
-    JWT claim, so demoting a user takes effect immediately.
-    """
+    """Allow authenticated, active users whose *database* role is allowed."""
 
     allowed_roles: frozenset = frozenset()
 
@@ -132,7 +130,6 @@ class IsTeacherOrAdminRole(HasRole):
     allowed_roles = frozenset({ADMIN, TEACHER})
 
 
-# Backwards-compatible alias for the old permission class name
 IsAdminUserRole = IsAdminRole
 
 
@@ -157,11 +154,7 @@ def normalize_email(value) -> str:
 
 
 def build_tokens(user, role=None) -> dict:
-    """Issue a JWT pair with the role embedded.
-
-    simplejwt copies custom claims from the refresh token into the access
-    token derived from it, so setting the claim once covers both.
-    """
+    """Issue a JWT pair with the role embedded."""
     role = role or get_user_role(user)
     refresh = RefreshToken.for_user(user)
     refresh["role"] = role
@@ -180,16 +173,29 @@ def generate_admission_number() -> str:
     raise RuntimeError("Could not generate a unique admission number.")
 
 
-def attach_role_profiles(user, role):
+def attach_role_profiles(user, role, is_admin_approved: Optional[bool] = None):
     """Create the profile rows for a role and keep the staff flag consistent."""
-    UserProfile.objects.update_or_create(user=user, defaults={"role": role})
+    defaults = {"role": role}
+    if is_admin_approved is not None:
+        defaults["is_admin_approved"] = is_admin_approved
+
+    profile, created = UserProfile.objects.get_or_create(user=user, defaults=defaults)
+    updates = []
+    if not created and profile.role != role:
+        profile.role = role
+        updates.append("role")
+    if not created and is_admin_approved is not None and profile.is_admin_approved != is_admin_approved:
+        profile.is_admin_approved = is_admin_approved
+        updates.append("is_admin_approved")
+    if updates:
+        profile.save(update_fields=updates)
 
     if role == ADMIN:
-        user.is_staff = True
-        user.save(update_fields=["is_staff"])
+        if not user.is_staff:
+            user.is_staff = True
+            user.save(update_fields=["is_staff"])
         return
 
-    # Only admins get Django-admin-site access.
     if user.is_staff and not user.is_superuser:
         user.is_staff = False
         user.save(update_fields=["is_staff"])
@@ -202,6 +208,62 @@ def attach_role_profiles(user, role):
         )
 
 
+def has_admin_approval(user) -> bool:
+    """Return True if the user does not require post-activation admin update,
+    or if an administrator has already updated/approved their account."""
+    role = get_user_role(user)
+    if role not in RESTRICTED_ROLES:
+        return True
+    profile = UserProfile.objects.filter(user=user).only("is_admin_approved").first()
+    return bool(profile.is_admin_approved) if profile is not None else True
+
+
+def notify_admins_of_activation(user, role: str):
+    """Send a reminder email via Resend to active admins when a student or teacher activates."""
+    if not getattr(settings, "RESEND_API_KEY", ""):
+        return
+
+    admin_emails = list(
+        User.objects.filter(is_active=True)
+        .filter(models.Q(is_superuser=True) | models.Q(profile__role=ADMIN))
+        .values_list("email", flat=True)
+        .distinct()
+    )
+    admin_emails = [addr.strip() for addr in admin_emails if addr and addr.strip()]
+    if not admin_emails:
+        return
+
+    dashboard_url = f"{getattr(settings, 'FRONTEND_URL', '').rstrip('/')}/dashboard/admin"
+    try:
+        resend.Emails.send(
+            {
+                "from": RESEND_FROM_EMAIL,
+                "to": admin_emails,
+                "subject": f"Action Required: Update Activated {role.title()} Account",
+                "html": f"""
+                    <div style="font-family: Arial, sans-serif; color: #10002b; padding: 20px;">
+                        <h2 style="color: #10002b;">Account Activation Reminder</h2>
+                        <p>
+                            <b>{user.email or user.username}</b> has just set their password and activated their
+                            <b>{role}</b> account on SmartAcademic.
+                        </p>
+                        <p>
+                            Login is restricted until an administrator reviews and updates their record
+                            in the Admin Dashboard.
+                        </p>
+                        <p style="margin-top: 16px;">
+                            <a href="{dashboard_url}" style="background-color: #c77dff; color: #10002b; padding: 10px 20px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: bold;">
+                                Open Admin Dashboard
+                            </a>
+                        </p>
+                    </div>
+                """,
+            }
+        )
+    except Exception as mail_err:
+        logger.warning("Failed to send admin activation reminder for %s: %s", user.email, mail_err)
+
+
 def staff_session(user, message):
     """Shared tail of the OTP and Google flows: admin/teacher only."""
     if not user.is_active:
@@ -211,16 +273,14 @@ def staff_session(user, message):
     if role not in STAFF_ROLES:
         return error("Unauthorized account type.", status.HTTP_403_FORBIDDEN)
 
+    if not has_admin_approval(user):
+        return error(ADMIN_APPROVAL_REQUIRED_MSG, status.HTTP_403_FORBIDDEN)
+
     return Response({**build_tokens(user, role), "message": message})
 
 
 class PublicAPIView(APIView):
-    """Unauthenticated endpoint with per-scope throttling.
-
-    `authentication_classes = []` stops a stale Authorization header from
-    causing a 401 on endpoints that must be open. Set `throttle_scope` on
-    subclasses; rates are configured in settings.
-    """
+    """Unauthenticated endpoint with per-scope throttling."""
 
     authentication_classes = []
     permission_classes = [permissions.AllowAny]
@@ -234,24 +294,21 @@ def _otp_key(kind: str, email: str) -> str:
 
 
 def _otp_hash(email: str, code: str) -> str:
-    # Stored hashed, so a cache dump does not reveal live codes.
     return salted_hmac("accounts.otp", f"{email}:{code}").hexdigest()
 
 
 def reserve_otp_slot(email: str) -> bool:
-    """Atomically claim the resend cooldown. False means 'too soon'."""
     return cache.add(_otp_key("cooldown", email), 1, OTP_RESEND_COOLDOWN_SECONDS)
 
 
 def create_otp(email: str) -> str:
-    code = f"{secrets.randbelow(1_000_000):06d}"  # cryptographically secure
+    code = f"{secrets.randbelow(1_000_000):06d}"
     cache.set(_otp_key("code", email), _otp_hash(email, code), OTP_TTL_SECONDS)
     cache.set(_otp_key("attempts", email), 0, OTP_TTL_SECONDS)
     return code
 
 
 def check_otp(email: str, code) -> bool:
-    """Verify a code. Single use, with a cap on wrong guesses."""
     code_key = _otp_key("code", email)
     attempts_key = _otp_key("attempts", email)
 
@@ -261,12 +318,12 @@ def check_otp(email: str, code) -> bool:
 
     try:
         attempts = cache.incr(attempts_key)
-    except ValueError:  # counter expired or missing
+    except ValueError:
         cache.set(attempts_key, 1, OTP_TTL_SECONDS)
         attempts = 1
 
     if attempts > OTP_MAX_ATTEMPTS:
-        cache.delete(code_key)  # burn the code; user must request a new one
+        cache.delete(code_key)
         return False
 
     if constant_time_compare(stored, _otp_hash(email, str(code).strip())):
@@ -295,9 +352,7 @@ class SendUniversalOTPView(PublicAPIView):
 
         user = User.objects.filter(email__iexact=email, is_active=True).first()
 
-        # Only eligible accounts receive a code, but the response is identical
-        # either way so the endpoint cannot be used to discover accounts.
-        if user and get_user_role(user) in STAFF_ROLES:
+        if user and get_user_role(user) in STAFF_ROLES and has_admin_approval(user):
             code = create_otp(email)
             try:
                 send_mail(
@@ -370,7 +425,9 @@ class StudentRegisterView(PublicAPIView):
                 first_name=first_name,
                 last_name=last_name,
             )
-            UserProfile.objects.create(user=user, role=STUDENT)
+            UserProfile.objects.create(
+                user=user, role=STUDENT, is_admin_approved=True
+            )
             StudentProfile.objects.create(user=user, admission_number=admission_number)
 
         return Response(
@@ -404,21 +461,26 @@ class StudentLoginView(PublicAPIView):
         if not profile.user.is_active:
             return error("Account is inactive.", status.HTTP_403_FORBIDDEN)
 
+        if not has_admin_approval(profile.user):
+            return error(ADMIN_APPROVAL_REQUIRED_MSG, status.HTTP_403_FORBIDDEN)
+
         return Response({**build_tokens(profile.user, STUDENT), "message": "Login successful!"})
 
 
 # =============================================================================
-# 4. ADMIN INVITATION & ACCOUNT ACTIVATION (Set password)
+# 4. ADMIN INVITATIONS, ACCOUNT ACTIVATION & ADMIN REMINDERS
 # =============================================================================
+def _build_invite_html(role: str, link: str) -> str:
+    return f"""
+        <div style="font-family: Arial, sans-serif; color: #10002b; padding: 20px;">
+            <h2 style="color: #10002b;">Welcome to SmartAcademic</h2>
+            <p>You have been invited to join as a <b>{role}</b>.</p>
+            <p>Click the button below to set your password and activate your account:</p>
+            <a href="{link}" style="background-color: #c77dff; color: #10002b; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: bold; margin: 15px 0;">Activate Account</a>
+            <p style="color: #666; font-size: 12px;">Or copy and paste this link into your browser:<br>{link}</p>
+        </div>
+    """
 
-
-import resend
-
-
-logger = logging.getLogger(__name__)
-
-# Initialize Resend API key
-resend.api_key = getattr(settings, 'RESEND_API_KEY', '')
 
 class AdminInviteUserView(APIView):
     permission_classes = [permissions.IsAuthenticated, IsAdminRole]
@@ -436,34 +498,27 @@ class AdminInviteUserView(APIView):
         if User.objects.filter(email__iexact=email).exists():
             return error("A user with this email already exists.")
 
+        needs_approval = role in RESTRICTED_ROLES
+
         try:
-            # 1. Create the user in database safely
             with transaction.atomic():
                 user = User.objects.create_user(username=email, email=email, is_active=False)
-                attach_role_profiles(user, role)
+                attach_role_profiles(user, role, is_admin_approved=not needs_approval)
 
             uid = urlsafe_base64_encode(force_bytes(user.pk))
             token = default_token_generator.make_token(user)
-            link = f"{settings.FRONTEND_URL}/signup?uid={uid}&token={token}"
+            link = f"{getattr(settings, 'FRONTEND_URL', '').rstrip('/')}/signup?uid={uid}&token={token}"
 
-            # 2. Send email via Resend HTTP API (No SMTP / No Port Blocking)
             email_sent = False
             try:
-                params = {
-                    "from": "SmartAcademic <onboarding@resend.dev>",  # Switch to your verified domain later if desired
-                    "to": [email],
-                    "subject": "Welcome to SmartAcademic - Set Your Password",
-                    "html": f"""
-                        <div style="font-family: Arial, sans-serif; color: #10002b; padding: 20px;">
-                            <h2 style="color: #10002b;">Welcome to SmartAcademic</h2>
-                            <p>You have been invited to join as a <b>{role}</b>.</p>
-                            <p>Click the button below to set your password and activate your account:</p>
-                            <a href="{link}" style="background-color: #c77dff; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: bold; margin: 15px 0;">Activate Account</a>
-                            <p style="color: #666; font-size: 12px;">Or copy and paste this link into your browser:<br>{link}</p>
-                        </div>
-                    """
-                }
-                resend.Emails.send(params)
+                resend.Emails.send(
+                    {
+                        "from": RESEND_FROM_EMAIL,
+                        "to": [email],
+                        "subject": "Welcome to SmartAcademic - Set Your Password",
+                        "html": _build_invite_html(role, link),
+                    }
+                )
                 email_sent = True
             except Exception as mail_err:
                 logger.warning("Resend HTTP API failed for %s: %s", email, mail_err)
@@ -478,12 +533,137 @@ class AdminInviteUserView(APIView):
 
         return Response(
             {
-                "message": f"Invitation successfully emailed to {email}!" if email_sent else "User created, but email dispatch failed. Copy the link below.",
+                "message": (
+                    f"Invitation successfully emailed to {email}!"
+                    if email_sent
+                    else "User created, but email dispatch failed. Copy the link below."
+                ),
                 "email_sent": email_sent,
+                "requires_admin_update_after_activation": needs_approval,
                 "invite_link": link,
             },
             status=status.HTTP_201_CREATED,
         )
+
+
+class AdminBulkInviteUserView(APIView):
+    permission_classes = [permissions.IsAuthenticated, IsAdminRole]
+
+    def post(self, request):
+        raw_invites = request.data.get("invites")
+        fallback_emails = request.data.get("emails")
+        default_role = str(request.data.get("role") or TEACHER).strip().lower()
+
+        items = []
+        if isinstance(raw_invites, list):
+            for entry in raw_invites:
+                if isinstance(entry, dict):
+                    items.append(
+                        {
+                            "email": normalize_email(entry.get("email")),
+                            "role": str(entry.get("role") or default_role).strip().lower(),
+                        }
+                    )
+                elif isinstance(entry, str):
+                    items.append({"email": normalize_email(entry), "role": default_role})
+        elif isinstance(fallback_emails, list):
+            for addr in fallback_emails:
+                items.append({"email": normalize_email(addr), "role": default_role})
+
+        if not items:
+            return error("Provide a non-empty list of invites or emails.")
+
+        created_records = []
+        skipped = []
+        seen_emails = set()
+        frontend_url = getattr(settings, "FRONTEND_URL", "").rstrip("/")
+
+        for item in items:
+            email = item["email"]
+            role = item["role"]
+
+            if not email:
+                continue
+            if email in seen_emails:
+                skipped.append({"email": email, "reason": "Duplicate email in request."})
+                continue
+            seen_emails.add(email)
+
+            if role not in ALL_ROLES:
+                skipped.append(
+                    {
+                        "email": email,
+                        "reason": f"Invalid role '{role}'. Must be one of: {', '.join(sorted(ALL_ROLES))}.",
+                    }
+                )
+                continue
+
+            if role == ADMIN and not request.user.is_superuser:
+                skipped.append({"email": email, "reason": "Only superusers can invite admins."})
+                continue
+
+            if User.objects.filter(email__iexact=email).exists():
+                skipped.append({"email": email, "reason": "User already exists."})
+                continue
+
+            needs_approval = role in RESTRICTED_ROLES
+
+            try:
+                with transaction.atomic():
+                    user = User.objects.create_user(username=email, email=email, is_active=False)
+                    attach_role_profiles(user, role, is_admin_approved=not needs_approval)
+
+                uid = urlsafe_base64_encode(force_bytes(user.pk))
+                token = default_token_generator.make_token(user)
+                link = f"{frontend_url}/signup?uid={uid}&token={token}"
+
+                created_records.append(
+                    {
+                        "email": email,
+                        "role": role,
+                        "requires_admin_update_after_activation": needs_approval,
+                        "invite_link": link,
+                    }
+                )
+            except Exception:
+                logger.exception("Failed to create invited user %s", email)
+                skipped.append({"email": email, "reason": "Could not create user record."})
+
+        sent_count = 0
+        failed_emails = []
+
+        batch_payload = [
+            {
+                "from": RESEND_FROM_EMAIL,
+                "to": [rec["email"]],
+                "subject": "Welcome to SmartAcademic - Set Your Password",
+                "html": _build_invite_html(rec["role"], rec["invite_link"]),
+            }
+            for rec in created_records
+        ]
+
+        for i in range(0, len(batch_payload), 100):
+            chunk = batch_payload[i : i + 100]
+            try:
+                resend.Batch.send(chunk)
+                sent_count += len(chunk)
+            except Exception as batch_err:
+                logger.warning("Resend Batch.send failed for chunk %s: %s", i // 100, batch_err)
+                for msg in chunk:
+                    failed_emails.append(msg["to"][0])
+
+        return Response(
+            {
+                "message": f"Processed {len(created_records)} new invite(s); {sent_count} email(s) sent.",
+                "created_count": len(created_records),
+                "emails_sent": sent_count,
+                "failed_email_deliveries": failed_emails,
+                "skipped": skipped,
+                "invites": created_records,
+            },
+            status=status.HTTP_201_CREATED if created_records else status.HTTP_200_OK,
+        )
+
 
 class SetPasswordView(PublicAPIView):
     throttle_scope = "password_set"
@@ -496,58 +676,54 @@ class SetPasswordView(PublicAPIView):
         uid = str(raw_uid).strip()
         token = str(raw_token).strip()
 
-        print("\n========== ACTIVATION DEBUG ==========")
-        print("UID received:", repr(uid))
-        print("UID length:", len(uid))
-        print("Token length:", len(token))
-        print("Token received:", bool(token))
-        print("Password received:", bool(password))
-
         if not uid or not token or not password:
-            print("RESULT: Missing activation details")
             return error("Missing activation details.")
 
         try:
             decoded_uid = force_str(urlsafe_base64_decode(uid))
             user = User.objects.get(pk=decoded_uid)
-
-            print("Decoded UID:", decoded_uid)
-            print("User found:", user.pk)
-            print("User active:", user.is_active)
-
-        except (
-            User.DoesNotExist,
-            ValueError,
-            TypeError,
-            OverflowError
-        ):
-            print("RESULT: UID decoding or user lookup failed")
+        except (User.DoesNotExist, ValueError, TypeError, OverflowError):
             return error("Invalid activation link.")
 
-        token_valid = default_token_generator.check_token(
-            user, token
-        )
-
-        print("Token valid:", token_valid)
-        print("=====================================\n")
-
-        if not token_valid:
+        if not default_token_generator.check_token(user, token):
             return error("Token is invalid or has expired.")
 
         try:
             validate_password(password, user=user)
-
         except DjangoValidationError as exc:
             return password_error(exc)
 
-        user.set_password(password)
-        user.is_active = True
+        role = get_user_role(user) or STUDENT
+        requires_admin_update = role in RESTRICTED_ROLES
 
-        user.save(update_fields=["password", "is_active"])
+        with transaction.atomic():
+            user.set_password(password)
+            user.is_active = True
+            user.save(update_fields=["password", "is_active"])
 
-        return Response({
-            "message": "Account activated successfully! You can now log in."
-        })
+            profile, _ = UserProfile.objects.get_or_create(user=user, defaults={"role": role})
+            if requires_admin_update:
+                profile.is_admin_approved = False
+                profile.save(update_fields=["is_admin_approved"])
+
+        if requires_admin_update:
+            notify_admins_of_activation(user, role)
+            return Response(
+                {
+                    "message": (
+                        "Account activated! An administrator has been notified to review and "
+                        "update your account before you can log in."
+                    ),
+                    "pending_admin_update": True,
+                }
+            )
+
+        return Response(
+            {
+                "message": "Account activated successfully! You can now log in.",
+                "pending_admin_update": False,
+            }
+        )
 
 
 # =============================================================================
@@ -576,6 +752,9 @@ class EmailPasswordLoginView(PublicAPIView):
         role = get_user_role(user)
         if role is None:
             return error("This account has no role assigned.", status.HTTP_403_FORBIDDEN)
+
+        if not has_admin_approval(user):
+            return error(ADMIN_APPROVAL_REQUIRED_MSG, status.HTTP_403_FORBIDDEN)
 
         return Response({**build_tokens(user, role), "message": "Login successful!"})
 
@@ -619,6 +798,20 @@ class AdminUserListCreateView(generics.ListCreateAPIView):
     queryset = User.objects.select_related("profile").order_by("id")
     serializer_class = AdminUserManagementSerializer
     permission_classes = [IsAdminRole]
+
+
+class AdminUserDetailUpdateView(generics.RetrieveUpdateDestroyAPIView):
+    queryset = User.objects.select_related("profile").order_by("id")
+    serializer_class = AdminUserManagementSerializer
+    permission_classes = [IsAdminRole]
+    lookup_field = "id"
+
+    def perform_destroy(self, instance):
+        if instance.pk == self.request.user.pk:
+            raise PermissionDenied("You cannot delete your own account.")
+        if instance.is_superuser and not self.request.user.is_superuser:
+            raise PermissionDenied("Only superusers can delete a superuser.")
+        instance.delete()
 
 
 class AdminUserDeleteView(generics.DestroyAPIView):
