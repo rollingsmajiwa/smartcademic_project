@@ -625,9 +625,9 @@ class AdminBulkInviteUserView(APIView):
                         "invite_link": link,
                     }
                 )
-            except Exception:
+            except Exception as exc:
                 logger.exception("Failed to create invited user %s", email)
-                skipped.append({"email": email, "reason": "Could not create user record."})
+                skipped.append({"email": email, "reason": str(exc) or "Could not create user record."})
 
         sent_count = 0
         failed_emails = []
