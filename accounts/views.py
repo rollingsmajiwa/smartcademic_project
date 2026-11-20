@@ -3,7 +3,7 @@ Authentication views for SmartAcademic.
 
 Sections:
 0. Roles and permissions
-1. Shared helpers (responses, tokens, OTP, admission numbers, admin approval)
+1. Shared helpers (responses, tokens, OTP, ID generators, admin approval)
 2. Teacher & admin login (email + OTP)
 3. Student registration & login (admission number + password)
 4. Admin invitations (single & bulk), account activation & admin reminders
@@ -73,9 +73,9 @@ def get_user_role(user) -> Optional[str]:
     """Resolve a user's role. This is the only place roles are decided.
 
     Priority:
-    1. Superuser                           -> admin
-    2. UserProfile.role (a valid role)     -> that role   (source of truth)
-    3. A TeacherProfile / StudentProfile   -> teacher / student
+    1. Superuser                               -> admin
+    2. UserProfile.role (a valid role)         -> that role   (source of truth)
+    3. A TeacherProfile / StudentProfile       -> teacher / student
     4. is_staff, only when nothing else is known -> admin
     """
     if user is None or not getattr(user, "pk", None):
@@ -173,6 +173,14 @@ def generate_admission_number() -> str:
     raise RuntimeError("Could not generate a unique admission number.")
 
 
+def _generate_tsc_number() -> str:
+    for _ in range(20):
+        candidate = f"TSC-{secrets.token_hex(4).upper()}"
+        if not TeacherProfile.objects.filter(tsc_number=candidate).exists():
+            return candidate
+    raise RuntimeError("Could not generate a unique TSC number.")
+
+
 def attach_role_profiles(user, role, is_admin_approved: Optional[bool] = None):
     """Create the profile rows for a role and keep the staff flag consistent."""
     defaults = {"role": role}
@@ -184,7 +192,11 @@ def attach_role_profiles(user, role, is_admin_approved: Optional[bool] = None):
     if not created and profile.role != role:
         profile.role = role
         updates.append("role")
-    if not created and is_admin_approved is not None and profile.is_admin_approved != is_admin_approved:
+    if (
+        not created
+        and is_admin_approved is not None
+        and profile.is_admin_approved != is_admin_approved
+    ):
         profile.is_admin_approved = is_admin_approved
         updates.append("is_admin_approved")
     if updates:
@@ -201,11 +213,21 @@ def attach_role_profiles(user, role, is_admin_approved: Optional[bool] = None):
         user.save(update_fields=["is_staff"])
 
     if role == TEACHER:
-        TeacherProfile.objects.get_or_create(user=user)
-    elif role == STUDENT:
-        StudentProfile.objects.get_or_create(
-            user=user, defaults={"admission_number": generate_admission_number()}
+        teacher_profile, _ = TeacherProfile.objects.get_or_create(
+            user=user,
+            defaults={"tsc_number": _generate_tsc_number()},
         )
+        if not teacher_profile.tsc_number or str(teacher_profile.tsc_number).strip() in {"0", ""}:
+            teacher_profile.tsc_number = _generate_tsc_number()
+            teacher_profile.save(update_fields=["tsc_number"])
+    elif role == STUDENT:
+        student_profile, _ = StudentProfile.objects.get_or_create(
+            user=user,
+            defaults={"admission_number": generate_admission_number()},
+        )
+        if not student_profile.admission_number or not str(student_profile.admission_number).strip():
+            student_profile.admission_number = generate_admission_number()
+            student_profile.save(update_fields=["admission_number"])
 
 
 def has_admin_approval(user) -> bool:
