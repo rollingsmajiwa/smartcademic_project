@@ -91,7 +91,7 @@ def _file_to_data_uri(uploaded_file) -> str:
     return f"data:{mime_type};base64,{encoded}"
 
 
-def build_school_report_html(logo_src: str = "/ngegu-logo.png") -> str:
+def build_school_report_html(logo_src: str = "/images/logo.jpg") -> str:
     logo_html = (
         f'<img src="{logo_src}" alt="Ngegu School Logo" '
         f'style="width:72px;height:72px;object-fit:contain;" />'
@@ -348,7 +348,7 @@ def _resolve_report_template(user):
 
 
 def _get_active_html_for_template(tmpl, request=None) -> str:
-    logo_src = "/ngegu-logo.png"
+    logo_src = "/images/logo.jpg"
     if tmpl and getattr(tmpl, "template_file", None):
         data_uri = _file_to_data_uri(tmpl.template_file)
         if data_uri:
