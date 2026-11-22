@@ -6,7 +6,7 @@ from google import genai
 from google.genai import types
 
 
-DEFAULT_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")
+DEFAULT_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.6-flash")
 
 
 def get_gemini_client():
