@@ -22,7 +22,390 @@ import pandas as pd
 from django.http import HttpResponse
 from rest_framework.views import APIView
 
+from collections import defaultdict
+from django.shortcuts import get_object_or_404
+from rest_framework.parsers import JSONParser
 
+
+from .ai_service import (
+    extract_text_from_file_field,
+    generate_json_response,
+    generate_text_response,
+)
+from .models import ReportFormTemplate, StudentMark, Teacher
+
+
+
+MARKING_SCHEMA = {
+    "type": "OBJECT",
+    "properties": {
+        "suggested_score": {"type": "NUMBER"},
+        "max_score": {"type": "NUMBER"},
+        "feedback": {"type": "STRING"},
+        "needs_manual_review": {"type": "BOOLEAN"},
+        "review_reason": {"type": "STRING"},
+    },
+    "required": [
+        "suggested_score",
+        "max_score",
+        "feedback",
+        "needs_manual_review",
+        "review_reason",
+    ],
+}
+
+REPORT_COMMENT_SCHEMA = {
+    "type": "OBJECT",
+    "properties": {
+        "class_teacher_comment": {"type": "STRING"},
+        "strengths": {"type": "STRING"},
+        "areas_for_improvement": {"type": "STRING"},
+        "principal_remark": {"type": "STRING"},
+    },
+    "required": [
+        "class_teacher_comment",
+        "strengths",
+        "areas_for_improvement",
+        "principal_remark",
+    ],
+}
+
+DEFAULT_REPORT_HTML = """
+<div style="font-family: Arial, sans-serif; padding: 24px; color: #10002b; border: 2px solid #10002b; border-radius: 12px;">
+  <div style="display:flex; justify-content:space-between; border-bottom:2px solid #c77dff; padding-bottom:12px; margin-bottom:16px;">
+    <div>
+      <h1 style="margin:0; font-size:22px; color:#10002b;">SmartAcademic Student Report Form</h1>
+      <p style="margin:4px 0 0; font-size:13px;">{{class_name}} · {{term}} {{year}} · Student: <strong>{{student_name}}</strong></p>
+    </div>
+    <div style="text-align:right; font-size:13px;">
+      <div><strong>Mean Score:</strong> {{mean_score}}%</div>
+    </div>
+  </div>
+  <h3 style="margin:12px 0 6px; font-size:15px;">Subject Breakdown</h3>
+  <p style="font-size:13px; margin:0 0 12px;">{{performance_summary}}</p>
+  <h3 style="margin:12px 0 6px; font-size:15px;">Strengths</h3>
+  <p style="font-size:13px; margin:0 0 12px;">{{strengths}}</p>
+  <h3 style="margin:12px 0 6px; font-size:15px;">Areas for Improvement</h3>
+  <p style="font-size:13px; margin:0 0 12px;">{{areas_for_improvement}}</p>
+  <h3 style="margin:12px 0 6px; font-size:15px;">Class Teacher Comment</h3>
+  <p style="font-size:13px; margin:0 0 12px;">{{class_teacher_comment}}</p>
+  <h3 style="margin:12px 0 6px; font-size:15px;">Principal Remark</h3>
+  <p style="font-size:13px; margin:0;">{{principal_remark}}</p>
+</div>
+""".strip()
+
+
+class AISuggestMarkView(APIView):
+    """Generates a draft mark & feedback for teacher review (human-in-the-loop)."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        submission_type = (request.data.get("submission_type") or "assignment").lower()
+        submission_id = request.data.get("submission_id")
+        max_score = float(request.data.get("max_score", 100))
+
+        if not submission_id:
+            return Response(
+                {"error": "submission_id is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if submission_type == "exam":
+            sub = get_object_or_404(ExamSubmission, id=submission_id)
+            task_title = getattr(sub.exam, "title", "Exam")
+            task_desc = getattr(sub.exam, "description", "") or ""
+            task_file_text = extract_text_from_file_field(
+                getattr(sub.exam, "file", None), max_chars=4000
+            )
+            answers_json_text = (
+                str(sub.answers_json) if getattr(sub, "answers_json", None) else ""
+            )
+        else:
+            sub = get_object_or_404(AssignmentSubmission, id=submission_id)
+            task_title = getattr(sub.assignment, "title", "Assignment")
+            task_desc = getattr(sub.assignment, "description", "") or ""
+            task_file_text = extract_text_from_file_field(
+                getattr(sub.assignment, "file", None), max_chars=4000
+            )
+            answers_json_text = ""
+
+        student_text = (getattr(sub, "answer_text", "") or "").strip()
+        student_file_text = extract_text_from_file_field(
+            getattr(sub, "file", None), max_chars=8000
+        )
+        combined_answer = "\n\n".join(
+            part for part in [student_text, answers_json_text, student_file_text] if part
+        ).strip()
+
+        if not combined_answer:
+            sub.ai_needs_manual_review = True
+            sub.ai_feedback = (
+                "No readable text found in submission. Please review the uploaded file manually."
+            )
+            sub.ai_marked_at = timezone.now()
+            sub.save()
+            return Response(
+                {
+                    "suggested_score": 0,
+                    "max_score": max_score,
+                    "feedback": sub.ai_feedback,
+                    "needs_manual_review": True,
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        system_instruction = (
+            "You are an assistive grading helper for SmartAcademic. "
+            "Evaluate the learner's submission against the assignment or exam instructions and "
+            "propose a fair draft score and constructive feedback for teacher review. "
+            "Never exceed max_score. Set needs_manual_review=true if the response is incomplete, "
+            "unclear, or needs teacher judgment."
+        )
+        prompt = (
+            f"Title: {task_title}\n"
+            f"Instructions: {task_desc}\n"
+            f"Question Paper Content: {task_file_text}\n"
+            f"Maximum Score: {max_score}\n\n"
+            f"Learner Submission:\n{combined_answer}"
+        )
+
+        try:
+            result = generate_json_response(
+                system_instruction, prompt, MARKING_SCHEMA, temperature=0.2
+            )
+            score = round(
+                max(0.0, min(max_score, float(result.get("suggested_score", 0)))), 2
+            )
+            feedback = (result.get("feedback") or "").strip()
+            needs_review = bool(result.get("needs_manual_review", False))
+            reason = (result.get("review_reason") or "").strip()
+            full_feedback = (
+                f"{feedback} (Note: {reason})" if needs_review and reason else feedback
+            )
+
+            sub.ai_suggested_score = score
+            sub.ai_feedback = full_feedback
+            sub.ai_needs_manual_review = needs_review
+            sub.ai_marked_at = timezone.now()
+            sub.save()
+
+            return Response(
+                {
+                    "suggested_score": score,
+                    "max_score": max_score,
+                    "feedback": full_feedback,
+                    "needs_manual_review": needs_review,
+                },
+                status=status.HTTP_200_OK,
+            )
+        except Exception as exc:
+            return Response(
+                {"error": f"AI marking could not complete: {exc}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
+class ReportTemplateView(APIView):
+    """Handles default template fallback, optional uploaded template, and AI template edits."""
+
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+
+    def get(self, request):
+        tmpl = (
+            ReportFormTemplate.objects.filter(created_by=request.user)
+            .order_by("-updated_at")
+            .first()
+        )
+        if not tmpl:
+            return Response(
+                {
+                    "use_default_template": True,
+                    "title": "Standard Term Report Card",
+                    "html_template": DEFAULT_REPORT_HTML,
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        return Response(
+            {
+                "id": tmpl.id,
+                "title": tmpl.title,
+                "use_default_template": tmpl.use_default_template,
+                "html_template": tmpl.custom_html_template or DEFAULT_REPORT_HTML,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    def post(self, request):
+        teacher = Teacher.objects.filter(user=request.user).first()
+        tmpl, _ = ReportFormTemplate.objects.get_or_create(
+            created_by=request.user,
+            defaults={
+                "teacher": teacher,
+                "title": request.data.get("title") or "Standard Term Report Card",
+            },
+        )
+
+        if request.data.get("title"):
+            tmpl.title = request.data.get("title")
+
+        if "template_file" in request.FILES:
+            tmpl.template_file = request.FILES["template_file"]
+            extracted = extract_text_from_file_field(tmpl.template_file, max_chars=4000)
+            tmpl.use_default_template = False
+            if extracted and not tmpl.custom_html_template:
+                tmpl.custom_html_template = (
+                    DEFAULT_REPORT_HTML + f"\n<!-- Uploaded Template Notes:\n{extracted}\n-->"
+                )
+
+        use_default_flag = request.data.get("use_default_template")
+        if str(use_default_flag).lower() == "true":
+            tmpl.use_default_template = True
+            tmpl.custom_html_template = DEFAULT_REPORT_HTML
+
+        ai_instruction = (request.data.get("ai_edit_instruction") or "").strip()
+        if ai_instruction:
+            base_html = tmpl.custom_html_template or DEFAULT_REPORT_HTML
+            system_instruction = (
+                "You are a report card layout assistant for SmartAcademic. "
+                "Update the HTML report card template according to the teacher's instructions while "
+                "preserving all placeholders: {{student_name}}, {{class_name}}, {{term}}, {{year}}, "
+                "{{mean_score}}, {{performance_summary}}, {{strengths}}, {{areas_for_improvement}}, "
+                "{{class_teacher_comment}}, {{principal_remark}}. "
+                "Return ONLY valid HTML with inline styles."
+            )
+            try:
+                edited = generate_text_response(
+                    system_instruction,
+                    f"Instruction: {ai_instruction}\n\nCurrent HTML:\n{base_html}",
+                    temperature=0.3,
+                )
+                tmpl.custom_html_template = (
+                    edited.replace("```html", "").replace("```", "").strip()
+                )
+                tmpl.use_default_template = False
+            except Exception as exc:
+                return Response(
+                    {"error": f"AI template edit failed: {exc}"},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
+
+        tmpl.save()
+        return Response(
+            {
+                "id": tmpl.id,
+                "title": tmpl.title,
+                "use_default_template": tmpl.use_default_template,
+                "html_template": tmpl.custom_html_template or DEFAULT_REPORT_HTML,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class GenerateStudentReportFormsView(APIView):
+    """Generates personalized AI report forms from analyzed StudentMark records."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        class_name = request.data.get("class_name", "Grade 7")
+        term = request.data.get("term", "Term 1")
+        year = int(request.data.get("year", 2026))
+
+        marks_qs = StudentMark.objects.filter(
+            class_name=class_name,
+            term=term,
+            year=year,
+        ).select_related("student")
+
+        if not marks_qs.exists():
+            return Response(
+                {"error": f"No analyzed marks found for {class_name} ({term} {year})."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        grouped = defaultdict(list)
+        for mark in marks_qs:
+            grouped[mark.student].append(mark)
+
+        tmpl = (
+            ReportFormTemplate.objects.filter(created_by=request.user)
+            .order_by("-updated_at")
+            .first()
+        )
+        active_html = (
+            tmpl.custom_html_template
+            if (tmpl and not tmpl.use_default_template and tmpl.custom_html_template)
+            else DEFAULT_REPORT_HTML
+        )
+
+        system_instruction = (
+            "You are an experienced school academic advisor writing individualized report form comments. "
+            "Base every comment strictly on the learner's subject scores and mean score."
+        )
+
+        reports = []
+        for student_profile, records in grouped.items():
+            student_name = str(student_profile)
+            subject_lines = [
+                f"{r.get_subject_display()}: {float(r.marks):.1f}%" for r in records
+            ]
+            mean_score = round(sum(float(r.marks) for r in records) / len(records), 1)
+            summary_text = " | ".join(subject_lines)
+
+            prompt = (
+                f"Student: {student_name}\n"
+                f"Class: {class_name}, {term} {year}\n"
+                f"Mean Score: {mean_score}%\n"
+                f"Subject Performance: {summary_text}"
+            )
+            try:
+                remarks = generate_json_response(
+                    system_instruction, prompt, REPORT_COMMENT_SCHEMA, temperature=0.4
+                )
+            except Exception:
+                remarks = {
+                    "class_teacher_comment": (
+                        f"{student_name} recorded a {mean_score}% average across subjects in {term} {year}."
+                    ),
+                    "strengths": "Steady effort across core subjects.",
+                    "areas_for_improvement": "Review weaker subjects and practice past papers consistently.",
+                    "principal_remark": "Keep working diligently toward your academic goals.",
+                }
+
+            rendered_html = active_html
+            replacements = {
+                "{{student_name}}": student_name,
+                "{{class_name}}": class_name,
+                "{{term}}": term,
+                "{{year}}": str(year),
+                "{{mean_score}}": str(mean_score),
+                "{{performance_summary}}": summary_text,
+                "{{strengths}}": remarks["strengths"],
+                "{{areas_for_improvement}}": remarks["areas_for_improvement"],
+                "{{class_teacher_comment}}": remarks["class_teacher_comment"],
+                "{{principal_remark}}": remarks["principal_remark"],
+            }
+            for placeholder, value in replacements.items():
+                rendered_html = rendered_html.replace(placeholder, value)
+
+            reports.append(
+                {
+                    "student_id": student_profile.id,
+                    "name": student_name,
+                    "class_name": class_name,
+                    "term": term,
+                    "year": year,
+                    "mean_score": mean_score,
+                    "performance_summary": summary_text,
+                    **remarks,
+                    "rendered_html": rendered_html,
+                }
+            )
+
+        return Response({"reports": reports}, status=status.HTTP_200_OK)
 
 # API endpoint to list teachers
 class TeacherListView(APIView):

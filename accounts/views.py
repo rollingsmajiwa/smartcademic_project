@@ -3,7 +3,7 @@ Authentication views for SmartAcademic.
 
 Sections:
 0. Roles and permissions
-1. Shared helpers (responses, tokens, OTP, ID generators, admin approval)
+1. Shared helpers (responses, tokens, OTP, ID generators, admin approval, email)
 2. Teacher & admin login (email + OTP)
 3. Student registration & login (admission number + password)
 4. Admin invitations (single & bulk), account activation & admin reminders
@@ -23,7 +23,6 @@ from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth.tokens import default_token_generator
 from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.core.mail import send_mail
 from django.db import models, transaction
 from django.utils.crypto import constant_time_compare, salted_hmac
 from django.utils.encoding import force_bytes, force_str
@@ -153,6 +152,22 @@ def normalize_email(value) -> str:
     return str(value or "").strip().lower()
 
 
+def send_resend_email(to, subject: str, html: str) -> None:
+    """Send one email through Resend's HTTPS API (works on Render, unlike SMTP).
+
+    Raises on failure so callers can decide how to react.
+    """
+    recipients = [to] if isinstance(to, str) else list(to)
+    resend.Emails.send(
+        {
+            "from": RESEND_FROM_EMAIL,
+            "to": recipients,
+            "subject": subject,
+            "html": html,
+        }
+    )
+
+
 def build_tokens(user, role=None) -> dict:
     """Issue a JWT pair with the role embedded."""
     role = role or get_user_role(user)
@@ -257,30 +272,27 @@ def notify_admins_of_activation(user, role: str):
 
     dashboard_url = f"{getattr(settings, 'FRONTEND_URL', '').rstrip('/')}/dashboard/admin"
     try:
-        resend.Emails.send(
-            {
-                "from": RESEND_FROM_EMAIL,
-                "to": admin_emails,
-                "subject": f"Action Required: Update Activated {role.title()} Account",
-                "html": f"""
-                    <div style="font-family: Arial, sans-serif; color: #10002b; padding: 20px;">
-                        <h2 style="color: #10002b;">Account Activation Reminder</h2>
-                        <p>
-                            <b>{user.email or user.username}</b> has just set their password and activated their
-                            <b>{role}</b> account on SmartAcademic.
-                        </p>
-                        <p>
-                            Login is restricted until an administrator reviews and updates their record
-                            in the Admin Dashboard.
-                        </p>
-                        <p style="margin-top: 16px;">
-                            <a href="{dashboard_url}" style="background-color: #c77dff; color: #10002b; padding: 10px 20px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: bold;">
-                                Open Admin Dashboard
-                            </a>
-                        </p>
-                    </div>
-                """,
-            }
+        send_resend_email(
+            admin_emails,
+            f"Action Required: Update Activated {role.title()} Account",
+            f"""
+                <div style="font-family: Arial, sans-serif; color: #10002b; padding: 20px;">
+                    <h2 style="color: #10002b;">Account Activation Reminder</h2>
+                    <p>
+                        <b>{user.email or user.username}</b> has just set their password and activated their
+                        <b>{role}</b> account on SmartAcademic.
+                    </p>
+                    <p>
+                        Login is restricted until an administrator reviews and updates their record
+                        in the Admin Dashboard.
+                    </p>
+                    <p style="margin-top: 16px;">
+                        <a href="{dashboard_url}" style="background-color: #c77dff; color: #10002b; padding: 10px 20px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: bold;">
+                            Open Admin Dashboard
+                        </a>
+                    </p>
+                </div>
+            """,
         )
     except Exception as mail_err:
         logger.warning("Failed to send admin activation reminder for %s: %s", user.email, mail_err)
@@ -377,12 +389,17 @@ class SendUniversalOTPView(PublicAPIView):
         if user and get_user_role(user) in STAFF_ROLES and has_admin_approval(user):
             code = create_otp(email)
             try:
-                send_mail(
-                    subject="Your Smart Academic Login Code",
-                    message=f"Your verification code is: {code}\n\nIt expires in 5 minutes.",
-                    from_email=None,
-                    recipient_list=[email],
-                    fail_silently=False,
+                # Resend HTTPS API instead of Gmail SMTP (Render blocks SMTP ports).
+                send_resend_email(
+                    email,
+                    "Your Smart Academic Login Code",
+                    f"""
+                        <div style="font-family: Arial, sans-serif; color: #10002b; padding: 20px;">
+                            <h2>Your verification code</h2>
+                            <p style="font-size: 28px; font-weight: bold; letter-spacing: 6px;">{code}</p>
+                            <p>It expires in 5 minutes.</p>
+                        </div>
+                    """,
                 )
             except Exception:
                 logger.exception("Failed to send OTP email")
@@ -492,6 +509,9 @@ class StudentLoginView(PublicAPIView):
 # =============================================================================
 # 4. ADMIN INVITATIONS, ACCOUNT ACTIVATION & ADMIN REMINDERS
 # =============================================================================
+INVITE_SUBJECT = "Welcome to SmartAcademic - Set Your Password"
+
+
 def _build_invite_html(role: str, link: str) -> str:
     return f"""
         <div style="font-family: Arial, sans-serif; color: #10002b; padding: 20px;">
@@ -502,6 +522,13 @@ def _build_invite_html(role: str, link: str) -> str:
             <p style="color: #666; font-size: 12px;">Or copy and paste this link into your browser:<br>{link}</p>
         </div>
     """
+
+
+def _build_invite_link(user) -> str:
+    uid = urlsafe_base64_encode(force_bytes(user.pk))
+    token = default_token_generator.make_token(user)
+    frontend_url = getattr(settings, "FRONTEND_URL", "").rstrip("/")
+    return f"{frontend_url}/signup?uid={uid}&token={token}"
 
 
 class AdminInviteUserView(APIView):
@@ -517,41 +544,38 @@ class AdminInviteUserView(APIView):
             return error(f"Role must be one of: {', '.join(sorted(ALL_ROLES))}.")
         if role == ADMIN and not request.user.is_superuser:
             return error("Only superusers can invite admins.", status.HTTP_403_FORBIDDEN)
-        if User.objects.filter(email__iexact=email).exists():
-            return error("A user with this email already exists.")
+
+        # A pending (inactive) user from an earlier failed attempt is reused so the
+        # admin can always get a fresh link. Only active accounts block a new invite.
+        existing = User.objects.filter(email__iexact=email).first()
+        if existing and existing.is_active:
+            return error("A user with this email already exists and is active.")
 
         needs_approval = role in RESTRICTED_ROLES
 
         try:
             with transaction.atomic():
-                user = User.objects.create_user(username=email, email=email, is_active=False)
+                user = existing or User.objects.create_user(
+                    username=email, email=email, is_active=False
+                )
                 attach_role_profiles(user, role, is_admin_approved=not needs_approval)
 
-            uid = urlsafe_base64_encode(force_bytes(user.pk))
-            token = default_token_generator.make_token(user)
-            link = f"{getattr(settings, 'FRONTEND_URL', '').rstrip('/')}/signup?uid={uid}&token={token}"
-
-            email_sent = False
-            try:
-                resend.Emails.send(
-                    {
-                        "from": RESEND_FROM_EMAIL,
-                        "to": [email],
-                        "subject": "Welcome to SmartAcademic - Set Your Password",
-                        "html": _build_invite_html(role, link),
-                    }
-                )
-                email_sent = True
-            except Exception as mail_err:
-                logger.warning("Resend HTTP API failed for %s: %s", email, mail_err)
-                email_sent = False
-
+            link = _build_invite_link(user)
         except Exception:
             logger.exception("Failed to create user %s", email)
             return error(
                 "Could not create user invitation. Please try again.",
                 status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
+
+        email_sent = False
+        email_error = ""
+        try:
+            send_resend_email(email, INVITE_SUBJECT, _build_invite_html(role, link))
+            email_sent = True
+        except Exception as mail_err:
+            email_error = str(mail_err)
+            logger.warning("Resend HTTP API failed for %s: %s", email, mail_err)
 
         return Response(
             {
@@ -561,6 +585,7 @@ class AdminInviteUserView(APIView):
                     else "User created, but email dispatch failed. Copy the link below."
                 ),
                 "email_sent": email_sent,
+                "email_error": email_error,
                 "requires_admin_update_after_activation": needs_approval,
                 "invite_link": link,
             },
@@ -598,7 +623,6 @@ class AdminBulkInviteUserView(APIView):
         created_records = []
         skipped = []
         seen_emails = set()
-        frontend_url = getattr(settings, "FRONTEND_URL", "").rstrip("/")
 
         for item in items:
             email = item["email"]
@@ -624,27 +648,29 @@ class AdminBulkInviteUserView(APIView):
                 skipped.append({"email": email, "reason": "Only superusers can invite admins."})
                 continue
 
-            if User.objects.filter(email__iexact=email).exists():
-                skipped.append({"email": email, "reason": "User already exists."})
+            # Reuse pending (inactive) users so a failed earlier attempt can be retried
+            # and still yields a fresh activation link.
+            existing = User.objects.filter(email__iexact=email).first()
+            if existing and existing.is_active:
+                skipped.append({"email": email, "reason": "User already exists and is active."})
                 continue
 
             needs_approval = role in RESTRICTED_ROLES
 
             try:
                 with transaction.atomic():
-                    user = User.objects.create_user(username=email, email=email, is_active=False)
+                    user = existing or User.objects.create_user(
+                        username=email, email=email, is_active=False
+                    )
                     attach_role_profiles(user, role, is_admin_approved=not needs_approval)
-
-                uid = urlsafe_base64_encode(force_bytes(user.pk))
-                token = default_token_generator.make_token(user)
-                link = f"{frontend_url}/signup?uid={uid}&token={token}"
 
                 created_records.append(
                     {
                         "email": email,
                         "role": role,
                         "requires_admin_update_after_activation": needs_approval,
-                        "invite_link": link,
+                        "invite_link": _build_invite_link(user),
+                        "reissued": existing is not None,
                     }
                 )
             except Exception as exc:
@@ -653,12 +679,13 @@ class AdminBulkInviteUserView(APIView):
 
         sent_count = 0
         failed_emails = []
+        email_error = ""
 
         batch_payload = [
             {
                 "from": RESEND_FROM_EMAIL,
                 "to": [rec["email"]],
-                "subject": "Welcome to SmartAcademic - Set Your Password",
+                "subject": INVITE_SUBJECT,
                 "html": _build_invite_html(rec["role"], rec["invite_link"]),
             }
             for rec in created_records
@@ -670,16 +697,26 @@ class AdminBulkInviteUserView(APIView):
                 resend.Batch.send(chunk)
                 sent_count += len(chunk)
             except Exception as batch_err:
+                email_error = str(batch_err)
                 logger.warning("Resend Batch.send failed for chunk %s: %s", i // 100, batch_err)
                 for msg in chunk:
                     failed_emails.append(msg["to"][0])
 
+        if failed_emails:
+            message = (
+                f"Processed {len(created_records)} invite(s); {sent_count} email(s) sent, "
+                f"{len(failed_emails)} failed. Use the activation links below for the failed ones."
+            )
+        else:
+            message = f"Processed {len(created_records)} invite(s); {sent_count} email(s) sent."
+
         return Response(
             {
-                "message": f"Processed {len(created_records)} new invite(s); {sent_count} email(s) sent.",
+                "message": message,
                 "created_count": len(created_records),
                 "emails_sent": sent_count,
                 "failed_email_deliveries": failed_emails,
+                "email_error": email_error,
                 "skipped": skipped,
                 "invites": created_records,
             },

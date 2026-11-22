@@ -1,27 +1,19 @@
 from django.db import models
-from datetime import time
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework import status
-from rest_framework.permissions import IsAuthenticated
 from django.utils import timezone
 from django.contrib.auth.models import User
 from admin_app.models import TeacherProfile, StudentProfile
 
-
-# Create your models here.
 
 class Teacher(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='teacher_profile')
     tsc_number = models.CharField(max_length=50, unique=True)
     department = models.CharField(max_length=100)
     name = models.CharField(max_length=100, null=True, blank=True)
-    
+
     def __str__(self):
         return f"Teacher: {self.user.get_full_name() or self.user.username}"
 
 
-# Model for revision materials
 class TeacherRevisionMaterial(models.Model):
     title = models.CharField(max_length=255, blank=True, null=True)
     description = models.TextField(blank=True, null=True)
@@ -59,10 +51,6 @@ class Exam_post(models.Model):
         return f"Exam: {self.title} ({self.duration_mins} mins)"
 
 
-# Model for teacher daily attendance
-
-
-
 class TeacherAttendance(models.Model):
     """Stores daily check-in, check-out time, week, month, and status for teachers"""
     teacher = models.ForeignKey(TeacherProfile, on_delete=models.CASCADE, related_name='attendances')
@@ -83,7 +71,6 @@ class TeacherAttendance(models.Model):
         return f"{self.teacher.surname} - {self.date} [{self.status}] (Week {self.week_number})"
 
 
-# Model for manual marks entry
 class StudentMark(models.Model):
     GRADE_CHOICES = [
         ('Grade 7', 'Grade 7'),
@@ -122,4 +109,19 @@ class StudentMark(models.Model):
         unique_together = ('student', 'subject', 'term', 'year', 'class_name')
 
     def __str__(self):
-        return f"{self.student} - {self.subject}: {self.marks} ({self.class_name}, {self.term} 2026)"
+        return f"{self.student} - {self.subject}: {self.marks} ({self.class_name}, {self.term} {self.year})"
+
+
+class ReportFormTemplate(models.Model):
+    """Stores an optional custom report template or falls back to SmartAcademic default."""
+    teacher = models.ForeignKey(Teacher, on_delete=models.CASCADE, related_name='report_templates', null=True, blank=True)
+    created_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name='report_form_templates')
+    title = models.CharField(max_length=200, default="Standard Term Report Card")
+    template_file = models.FileField(upload_to='report_templates/', blank=True, null=True)
+    custom_html_template = models.TextField(blank=True, default="")
+    use_default_template = models.BooleanField(default=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        mode = "Default" if self.use_default_template else "Custom"
+        return f"{self.title} ({mode})"
