@@ -206,22 +206,80 @@ class AISuggestMarkView(APIView):
             )
 
 
+def _build_html_from_uploaded_template(file_field, extracted_text: str) -> str:
+    file_name = getattr(file_field, "name", "Uploaded Template").split("/")[-1]
+    cleaned_extract = (extracted_text or "").strip()
+    template_notes = (
+        cleaned_extract[:2500]
+        if cleaned_extract
+        else f"Uploaded report template file: {file_name} (scanned/image layout)."
+    )
+    return f"""
+<div style="font-family: Arial, sans-serif; padding: 24px; color: #10002b; border: 2px solid #10002b; border-radius: 12px;">
+  <div style="display:flex; justify-content:space-between; border-bottom:2px solid #c77dff; padding-bottom:12px; margin-bottom:16px;">
+    <div>
+      <h1 style="margin:0; font-size:20px; color:#10002b;">{file_name} — Student Assessment Report</h1>
+      <p style="margin:4px 0 0; font-size:13px;">{{class_name}} · {{term}} {{year}} · Name: <strong>{{student_name}}</strong></p>
+    </div>
+    <div style="text-align:right; font-size:13px;">
+      <div><strong>Mean / Average:</strong> {{mean_score}}%</div>
+    </div>
+  </div>
+  <h3 style="margin:12px 0 6px; font-size:14px;">Learning Areas & Scores</h3>
+  <p style="font-size:13px; margin:0 0 12px;">{{performance_summary}}</p>
+  <h3 style="margin:12px 0 6px; font-size:14px;">Strengths</h3>
+  <p style="font-size:13px; margin:0 0 12px;">{{strengths}}</p>
+  <h3 style="margin:12px 0 6px; font-size:14px;">Areas for Improvement</h3>
+  <p style="font-size:13px; margin:0 0 12px;">{{areas_for_improvement}}</p>
+  <h3 style="margin:12px 0 6px; font-size:14px;">Class Teacher's Remarks</h3>
+  <p style="font-size:13px; margin:0 0 12px;">{{class_teacher_comment}}</p>
+  <h3 style="margin:12px 0 6px; font-size:14px;">Principal's Remark</h3>
+  <p style="font-size:13px; margin:0 0 12px;">{{principal_remark}}</p>
+  <!-- Uploaded Template Reference: {template_notes} -->
+</div>
+""".strip()
+
+
+def _resolve_report_template(user):
+    tmpl = (
+        ReportFormTemplate.objects.filter(created_by=user)
+        .order_by("-updated_at")
+        .first()
+    )
+    if not tmpl:
+        tmpl = (
+            ReportFormTemplate.objects.filter(is_default_template=True)
+            .order_by("-updated_at")
+            .first()
+            or ReportFormTemplate.objects.order_by("-updated_at").first()
+        )
+    return tmpl
+
+
+def _get_active_html_for_template(tmpl) -> str:
+    if not tmpl or tmpl.use_default_template:
+        return DEFAULT_REPORT_HTML
+    if tmpl.custom_html_template:
+        return tmpl.custom_html_template
+    if tmpl.template_file:
+        extracted = extract_text_from_file_field(tmpl.template_file, max_chars=4000)
+        return _build_html_from_uploaded_template(tmpl.template_file, extracted)
+    return DEFAULT_REPORT_HTML
+
+
 class ReportTemplateView(APIView):
-    """Handles default template fallback, optional uploaded template, and AI template edits."""
+    """Handles uploaded default templates, built-in fallback, and AI template edits."""
 
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser, JSONParser]
 
     def get(self, request):
-        tmpl = (
-            ReportFormTemplate.objects.filter(created_by=request.user)
-            .order_by("-updated_at")
-            .first()
-        )
+        tmpl = _resolve_report_template(request.user)
         if not tmpl:
             return Response(
                 {
                     "use_default_template": True,
+                    "is_default_template": False,
                     "title": "Standard Term Report Card",
                     "html_template": DEFAULT_REPORT_HTML,
                 },
@@ -233,41 +291,74 @@ class ReportTemplateView(APIView):
                 "id": tmpl.id,
                 "title": tmpl.title,
                 "use_default_template": tmpl.use_default_template,
-                "html_template": tmpl.custom_html_template or DEFAULT_REPORT_HTML,
+                "is_default_template": getattr(tmpl, "is_default_template", False),
+                "template_file_name": (
+                    tmpl.template_file.name.split("/")[-1] if tmpl.template_file else None
+                ),
+                "html_template": _get_active_html_for_template(tmpl),
             },
             status=status.HTTP_200_OK,
         )
 
     def post(self, request):
         teacher = Teacher.objects.filter(user=request.user).first()
-        tmpl, _ = ReportFormTemplate.objects.get_or_create(
-            created_by=request.user,
-            defaults={
-                "teacher": teacher,
-                "title": request.data.get("title") or "Standard Term Report Card",
-            },
-        )
+        tmpl = _resolve_report_template(request.user)
+        if not tmpl:
+            tmpl = ReportFormTemplate.objects.create(
+                created_by=request.user,
+                teacher=teacher,
+                title=request.data.get("title") or "Custom Assessment Report",
+                use_default_template=False,
+                is_default_template=True,
+            )
+        elif tmpl.created_by != request.user:
+            # Clone shared default template for this user so edits are saved cleanly
+            tmpl = ReportFormTemplate.objects.create(
+                created_by=request.user,
+                teacher=teacher,
+                title=tmpl.title,
+                template_file=tmpl.template_file,
+                custom_html_template=tmpl.custom_html_template,
+                use_default_template=tmpl.use_default_template,
+                is_default_template=True,
+            )
 
         if request.data.get("title"):
             tmpl.title = request.data.get("title")
 
+        uploaded_new_file = False
         if "template_file" in request.FILES:
             tmpl.template_file = request.FILES["template_file"]
+            tmpl.title = tmpl.template_file.name.split("/")[-1]
             extracted = extract_text_from_file_field(tmpl.template_file, max_chars=4000)
             tmpl.use_default_template = False
-            if extracted and not tmpl.custom_html_template:
-                tmpl.custom_html_template = (
-                    DEFAULT_REPORT_HTML + f"\n<!-- Uploaded Template Notes:\n{extracted}\n-->"
-                )
+            if hasattr(tmpl, "is_default_template"):
+                tmpl.is_default_template = True
+            tmpl.custom_html_template = _build_html_from_uploaded_template(
+                tmpl.template_file, extracted
+            )
+            uploaded_new_file = True
 
         use_default_flag = request.data.get("use_default_template")
-        if str(use_default_flag).lower() == "true":
+        if str(use_default_flag).lower() == "true" and not uploaded_new_file:
             tmpl.use_default_template = True
+            if hasattr(tmpl, "is_default_template"):
+                tmpl.is_default_template = False
             tmpl.custom_html_template = DEFAULT_REPORT_HTML
+        elif str(use_default_flag).lower() == "false":
+            tmpl.use_default_template = False
+            if hasattr(tmpl, "is_default_template"):
+                tmpl.is_default_template = True
 
         ai_instruction = (request.data.get("ai_edit_instruction") or "").strip()
-        if ai_instruction:
-            base_html = tmpl.custom_html_template or DEFAULT_REPORT_HTML
+        is_just_selection_phrase = ai_instruction.lower() in {
+            "use this template",
+            "use uploaded template",
+            "default template",
+        }
+
+        if ai_instruction and not (uploaded_new_file and is_just_selection_phrase):
+            base_html = _get_active_html_for_template(tmpl)
             system_instruction = (
                 "You are a report card layout assistant for SmartAcademic. "
                 "Update the HTML report card template according to the teacher's instructions while "
@@ -286,6 +377,8 @@ class ReportTemplateView(APIView):
                     edited.replace("```html", "").replace("```", "").strip()
                 )
                 tmpl.use_default_template = False
+                if hasattr(tmpl, "is_default_template"):
+                    tmpl.is_default_template = True
             except Exception as exc:
                 return Response(
                     {"error": f"AI template edit failed: {exc}"},
@@ -298,7 +391,11 @@ class ReportTemplateView(APIView):
                 "id": tmpl.id,
                 "title": tmpl.title,
                 "use_default_template": tmpl.use_default_template,
-                "html_template": tmpl.custom_html_template or DEFAULT_REPORT_HTML,
+                "is_default_template": getattr(tmpl, "is_default_template", False),
+                "template_file_name": (
+                    tmpl.template_file.name.split("/")[-1] if tmpl.template_file else None
+                ),
+                "html_template": _get_active_html_for_template(tmpl),
             },
             status=status.HTTP_200_OK,
         )
@@ -330,16 +427,8 @@ class GenerateStudentReportFormsView(APIView):
         for mark in marks_qs:
             grouped[mark.student].append(mark)
 
-        tmpl = (
-            ReportFormTemplate.objects.filter(created_by=request.user)
-            .order_by("-updated_at")
-            .first()
-        )
-        active_html = (
-            tmpl.custom_html_template
-            if (tmpl and not tmpl.use_default_template and tmpl.custom_html_template)
-            else DEFAULT_REPORT_HTML
-        )
+        tmpl = _resolve_report_template(request.user)
+        active_html = _get_active_html_for_template(tmpl)
 
         system_instruction = (
             "You are an experienced school academic advisor writing individualized report form comments. "

@@ -113,15 +113,26 @@ class StudentMark(models.Model):
 
 
 class ReportFormTemplate(models.Model):
-    """Stores an optional custom report template or falls back to SmartAcademic default."""
-    teacher = models.ForeignKey(Teacher, on_delete=models.CASCADE, related_name='report_templates', null=True, blank=True)
-    created_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name='report_form_templates')
-    title = models.CharField(max_length=200, default="Standard Term Report Card")
+    """Stores a report form template; can use an uploaded file as the default template."""
+    teacher = models.ForeignKey(
+        Teacher,
+        on_delete=models.CASCADE,
+        related_name='report_templates',
+        null=True,
+        blank=True,
+    )
+    created_by = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='report_form_templates',
+    )
+    title = models.CharField(max_length=200, default="Custom Assessment Report")
     template_file = models.FileField(upload_to='report_templates/', blank=True, null=True)
     custom_html_template = models.TextField(blank=True, default="")
-    use_default_template = models.BooleanField(default=True)
+    use_default_template = models.BooleanField(default=False)
+    is_default_template = models.BooleanField(default=False)
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
-        mode = "Default" if self.use_default_template else "Custom"
-        return f"{self.title} ({mode})"
+        label = "Default Uploaded" if self.is_default_template else ("Built-in Default" if self.use_default_template else "Custom")
+        return f"{self.title} ({label})"
