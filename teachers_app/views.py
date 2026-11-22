@@ -36,6 +36,8 @@ from .models import ReportFormTemplate, StudentMark, Teacher
 
 
 
+MAX_AI_REMARK_CALLS_PER_BATCH = 10
+
 MARKING_SCHEMA = {
     "type": "OBJECT",
     "properties": {
@@ -70,29 +72,151 @@ REPORT_COMMENT_SCHEMA = {
     ],
 }
 
-DEFAULT_REPORT_HTML = """
-<div style="font-family: Arial, sans-serif; padding: 24px; color: #10002b; border: 2px solid #10002b; border-radius: 12px;">
-  <div style="display:flex; justify-content:space-between; border-bottom:2px solid #c77dff; padding-bottom:12px; margin-bottom:16px;">
-    <div>
-      <h1 style="margin:0; font-size:22px; color:#10002b;">SmartAcademic Student Report Form</h1>
-      <p style="margin:4px 0 0; font-size:13px;">{{class_name}} · {{term}} {{year}} · Student: <strong>{{student_name}}</strong></p>
+
+def _cbc_level_for_score(score: float) -> str:
+    if score >= 90:
+        return "EE1"
+    if score >= 75:
+        return "EE2"
+    if score >= 58:
+        return "ME1"
+    if score >= 41:
+        return "ME2"
+    if score >= 31:
+        return "AE1"
+    if score >= 21:
+        return "AE2"
+    if score >= 11:
+        return "BE1"
+    return "BE2"
+
+
+def build_school_report_html(logo_url: str = "") -> str:
+    logo_html = (
+        f'<img src="{logo_url}" alt="School Logo" '
+        f'style="width:68px;height:68px;object-fit:contain;" />'
+        if logo_url
+        else (
+            '<div style="width:68px;height:68px;border:2px solid #111;'
+            'display:flex;align-items:center;justify-content:center;'
+            'font-size:10px;font-weight:700;text-align:center;">SCHOOL<br/>LOGO</div>'
+        )
+    )
+
+    return f"""
+<div style="font-family: 'Times New Roman', Georgia, serif; color: #111; max-width: 820px; margin: 0 auto; padding: 20px; background: #fff;">
+  <div style="display: flex; align-items: center; justify-content: space-between; border-bottom: 2px solid #111; padding-bottom: 10px;">
+    <div>{logo_html}</div>
+    <div style="text-align: center; flex: 1;">
+      <div style="font-size: 11px; font-weight: bold; letter-spacing: 1px;">HARD WORK PAYS</div>
+      <div style="font-size: 19px; font-weight: bold; margin-top: 2px;">NGEGU PRIMARY &amp; JUNIOR SCHOOL</div>
+      <div style="font-size: 13px; font-weight: bold;">P.O. BOX 345-00900</div>
+      <div style="font-size: 14px; font-weight: bold;">KIAMBU.</div>
+      <div style="font-size: 15px; font-weight: bold; margin-top: 6px; text-decoration: underline;">ASSESSMENT REPORT</div>
     </div>
-    <div style="text-align:right; font-size:13px;">
-      <div><strong>Mean Score:</strong> {{mean_score}}%</div>
+    <div style="width: 68px;"></div>
+  </div>
+
+  <div style="margin-top: 12px; font-size: 13px; line-height: 1.6;">
+    <div><strong>ACADEMIC YEAR:</strong> {{{{year}}}} &nbsp;&nbsp;&nbsp; <strong>TERM:</strong> {{{{term}}}} &nbsp;&nbsp;&nbsp; <strong>GRADE:</strong> {{{{class_name}}}}</div>
+    <div><strong>NAME:</strong> <span style="text-transform: uppercase; font-weight: bold;">{{{{student_name}}}}</span></div>
+  </div>
+
+  <table style="width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 12px;">
+    <thead>
+      <tr style="background: #f3f4f6;">
+        <th style="border: 1px solid #222; padding: 6px 8px; text-align: left;">LEARNING AREA</th>
+        <th style="border: 1px solid #222; padding: 6px 8px; text-align: left;">SCORE</th>
+        <th style="border: 1px solid #222; padding: 6px 8px; text-align: left;">LEVEL</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{{{performance_rows_html}}}}
+      <tr style="font-weight: bold; background: #fafafa;">
+        <td style="border: 1px solid #222; padding: 6px 8px;">TOTAL / MEAN SCORE</td>
+        <td style="border: 1px solid #222; padding: 6px 8px;">{{{{total_marks}}}}</td>
+        <td style="border: 1px solid #222; padding: 6px 8px;">Mean: {{{{mean_score}}}}%</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div style="margin-top: 14px; font-size: 12.5px; line-height: 1.5;">
+    <div style="font-weight: bold; margin-bottom: 4px;">CLASSTEACHER'S REMARKS:</div>
+    <p style="margin: 0 0 8px;">{{{{class_teacher_comment}}}}</p>
+    <p style="margin: 0 0 6px;"><strong>Strengths:</strong> {{{{strengths}}}} &nbsp;|&nbsp; <strong>Areas for Improvement:</strong> {{{{areas_for_improvement}}}}</p>
+    <p style="margin: 0 0 10px;"><strong>Principal's Remark:</strong> {{{{principal_remark}}}}</p>
+    <div style="font-size: 11.5px; font-weight: bold;">
+      CLOSING DATE: 21ST OCTOBER, 2026. &nbsp;&nbsp;&nbsp; FIRST TERM BEGINS ON: MONDAY 4TH JANUARY, 2027.
     </div>
   </div>
-  <h3 style="margin:12px 0 6px; font-size:15px;">Subject Breakdown</h3>
-  <p style="font-size:13px; margin:0 0 12px;">{{performance_summary}}</p>
-  <h3 style="margin:12px 0 6px; font-size:15px;">Strengths</h3>
-  <p style="font-size:13px; margin:0 0 12px;">{{strengths}}</p>
-  <h3 style="margin:12px 0 6px; font-size:15px;">Areas for Improvement</h3>
-  <p style="font-size:13px; margin:0 0 12px;">{{areas_for_improvement}}</p>
-  <h3 style="margin:12px 0 6px; font-size:15px;">Class Teacher Comment</h3>
-  <p style="font-size:13px; margin:0 0 12px;">{{class_teacher_comment}}</p>
-  <h3 style="margin:12px 0 6px; font-size:15px;">Principal Remark</h3>
-  <p style="font-size:13px; margin:0;">{{principal_remark}}</p>
+
+  <table style="width: 100%; border-collapse: collapse; margin-top: 14px; font-size: 11px;">
+    <thead>
+      <tr style="background: #f3f4f6;">
+        <th style="border: 1px solid #222; padding: 4px 6px; text-align: left;">PERFORMANCE LEVEL</th>
+        <th style="border: 1px solid #222; padding: 4px 6px; text-align: left;">ACTUAL PERFORMANCE LEVEL</th>
+        <th style="border: 1px solid #222; padding: 4px 6px; text-align: left;">RAW MARKS</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td style="border: 1px solid #222; padding: 3px 6px;" rowspan="2">EXCEEDING EXPECTATION</td><td style="border: 1px solid #222; padding: 3px 6px;">EE1</td><td style="border: 1px solid #222; padding: 3px 6px;">90-99</td></tr>
+      <tr><td style="border: 1px solid #222; padding: 3px 6px;">EE2</td><td style="border: 1px solid #222; padding: 3px 6px;">75-89</td></tr>
+      <tr><td style="border: 1px solid #222; padding: 3px 6px;" rowspan="2">MEETING EXPECTATION</td><td style="border: 1px solid #222; padding: 3px 6px;">ME1</td><td style="border: 1px solid #222; padding: 3px 6px;">58-74</td></tr>
+      <tr><td style="border: 1px solid #222; padding: 3px 6px;">ME2</td><td style="border: 1px solid #222; padding: 3px 6px;">41-57</td></tr>
+      <tr><td style="border: 1px solid #222; padding: 3px 6px;" rowspan="2">APPROACHING EXPECTATION</td><td style="border: 1px solid #222; padding: 3px 6px;">AE1</td><td style="border: 1px solid #222; padding: 3px 6px;">31-40</td></tr>
+      <tr><td style="border: 1px solid #222; padding: 3px 6px;">AE2</td><td style="border: 1px solid #222; padding: 3px 6px;">21-30</td></tr>
+      <tr><td style="border: 1px solid #222; padding: 3px 6px;" rowspan="2">BELOW EXPECTATION</td><td style="border: 1px solid #222; padding: 3px 6px;">BE1</td><td style="border: 1px solid #222; padding: 3px 6px;">11-20</td></tr>
+      <tr><td style="border: 1px solid #222; padding: 3px 6px;">BE2</td><td style="border: 1px solid #222; padding: 3px 6px;">1-10</td></tr>
+    </tbody>
+  </table>
+
+  <div style="display: flex; justify-content: space-between; font-size: 10.5px; color: #444; margin-top: 10px; border-top: 1px solid #ccc; padding-top: 4px;">
+    <span>Ngegu Primary &amp; Junior School - Academic Report</span>
+    <span>Page 1 of 1</span>
+  </div>
 </div>
 """.strip()
+
+
+DEFAULT_REPORT_HTML = build_school_report_html()
+
+
+def _fallback_remarks_for_student(student_name: str, mean_score: float, term: str, year: int, records):
+    sorted_records = sorted(records, key=lambda r: float(r.marks), reverse=True)
+    top_subjects = ", ".join(
+        f"{r.get_subject_display()} ({float(r.marks):.1f}%)" for r in sorted_records[:2]
+    )
+    weak_records = [r for r in records if float(r.marks) < 58]
+    weak_subjects = ", ".join(
+        f"{r.get_subject_display()} ({float(r.marks):.1f}%)" for r in weak_records[:2]
+    )
+
+    return {
+        "class_teacher_comment": (
+            f"{student_name} achieved a mean score of {mean_score}% in {term} {year}. "
+            + (
+                f"Strongest areas include {top_subjects}. "
+                if top_subjects
+                else ""
+            )
+            + (
+                f"Focus extra revision on {weak_subjects}."
+                if weak_subjects
+                else "Keep maintaining consistent effort across all learning areas."
+            )
+        ),
+        "strengths": top_subjects or "Consistent participation across learning areas.",
+        "areas_for_improvement": (
+            f"Targeted practice in {weak_subjects}"
+            if weak_subjects
+            else "Continue regular revision and assessment practice."
+        ),
+        "principal_remark": (
+            f"Commendable progress for {student_name} in {term} {year}; aim even higher next term."
+            if mean_score >= 58
+            else f"Encouraged to stay focused and work closely with teachers to improve in {term} {year}."
+        ),
+    }
 
 
 class AISuggestMarkView(APIView):
@@ -206,40 +330,6 @@ class AISuggestMarkView(APIView):
             )
 
 
-def _build_html_from_uploaded_template(file_field, extracted_text: str) -> str:
-    file_name = getattr(file_field, "name", "Uploaded Template").split("/")[-1]
-    cleaned_extract = (extracted_text or "").strip()
-    template_notes = (
-        cleaned_extract[:2500]
-        if cleaned_extract
-        else f"Uploaded report template file: {file_name} (scanned/image layout)."
-    )
-    return f"""
-<div style="font-family: Arial, sans-serif; padding: 24px; color: #10002b; border: 2px solid #10002b; border-radius: 12px;">
-  <div style="display:flex; justify-content:space-between; border-bottom:2px solid #c77dff; padding-bottom:12px; margin-bottom:16px;">
-    <div>
-      <h1 style="margin:0; font-size:20px; color:#10002b;">{file_name} — Student Assessment Report</h1>
-      <p style="margin:4px 0 0; font-size:13px;">{{class_name}} · {{term}} {{year}} · Name: <strong>{{student_name}}</strong></p>
-    </div>
-    <div style="text-align:right; font-size:13px;">
-      <div><strong>Mean / Average:</strong> {{mean_score}}%</div>
-    </div>
-  </div>
-  <h3 style="margin:12px 0 6px; font-size:14px;">Learning Areas & Scores</h3>
-  <p style="font-size:13px; margin:0 0 12px;">{{performance_summary}}</p>
-  <h3 style="margin:12px 0 6px; font-size:14px;">Strengths</h3>
-  <p style="font-size:13px; margin:0 0 12px;">{{strengths}}</p>
-  <h3 style="margin:12px 0 6px; font-size:14px;">Areas for Improvement</h3>
-  <p style="font-size:13px; margin:0 0 12px;">{{areas_for_improvement}}</p>
-  <h3 style="margin:12px 0 6px; font-size:14px;">Class Teacher's Remarks</h3>
-  <p style="font-size:13px; margin:0 0 12px;">{{class_teacher_comment}}</p>
-  <h3 style="margin:12px 0 6px; font-size:14px;">Principal's Remark</h3>
-  <p style="font-size:13px; margin:0 0 12px;">{{principal_remark}}</p>
-  <!-- Uploaded Template Reference: {template_notes} -->
-</div>
-""".strip()
-
-
 def _resolve_report_template(user):
     tmpl = (
         ReportFormTemplate.objects.filter(created_by=user)
@@ -256,19 +346,22 @@ def _resolve_report_template(user):
     return tmpl
 
 
-def _get_active_html_for_template(tmpl) -> str:
+def _get_active_html_for_template(tmpl, request=None) -> str:
+    logo_url = ""
+    if tmpl and getattr(tmpl, "template_file", None) and request is not None:
+        file_name = tmpl.template_file.name.lower()
+        if file_name.endswith((".png", ".jpg", ".jpeg", ".webp", ".gif")):
+            logo_url = request.build_absolute_uri(tmpl.template_file.url)
+
     if not tmpl or tmpl.use_default_template:
-        return DEFAULT_REPORT_HTML
+        return build_school_report_html(logo_url=logo_url)
     if tmpl.custom_html_template:
         return tmpl.custom_html_template
-    if tmpl.template_file:
-        extracted = extract_text_from_file_field(tmpl.template_file, max_chars=4000)
-        return _build_html_from_uploaded_template(tmpl.template_file, extracted)
-    return DEFAULT_REPORT_HTML
+    return build_school_report_html(logo_url=logo_url)
 
 
 class ReportTemplateView(APIView):
-    """Handles uploaded default templates, built-in fallback, and AI template edits."""
+    """Preserves Ngegu Primary & Junior School format while supporting uploads & optional edits."""
 
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser, JSONParser]
@@ -278,9 +371,9 @@ class ReportTemplateView(APIView):
         if not tmpl:
             return Response(
                 {
-                    "use_default_template": True,
-                    "is_default_template": False,
-                    "title": "Standard Term Report Card",
+                    "use_default_template": False,
+                    "is_default_template": True,
+                    "title": "Ngegu Primary & Junior School Assessment Report",
                     "html_template": DEFAULT_REPORT_HTML,
                 },
                 status=status.HTTP_200_OK,
@@ -291,11 +384,11 @@ class ReportTemplateView(APIView):
                 "id": tmpl.id,
                 "title": tmpl.title,
                 "use_default_template": tmpl.use_default_template,
-                "is_default_template": getattr(tmpl, "is_default_template", False),
+                "is_default_template": getattr(tmpl, "is_default_template", True),
                 "template_file_name": (
                     tmpl.template_file.name.split("/")[-1] if tmpl.template_file else None
                 ),
-                "html_template": _get_active_html_for_template(tmpl),
+                "html_template": _get_active_html_for_template(tmpl, request=request),
             },
             status=status.HTTP_200_OK,
         )
@@ -307,19 +400,19 @@ class ReportTemplateView(APIView):
             tmpl = ReportFormTemplate.objects.create(
                 created_by=request.user,
                 teacher=teacher,
-                title=request.data.get("title") or "Custom Assessment Report",
+                title=request.data.get("title") or "Ngegu Primary & Junior School Assessment Report",
+                custom_html_template=DEFAULT_REPORT_HTML,
                 use_default_template=False,
                 is_default_template=True,
             )
         elif tmpl.created_by != request.user:
-            # Clone shared default template for this user so edits are saved cleanly
             tmpl = ReportFormTemplate.objects.create(
                 created_by=request.user,
                 teacher=teacher,
                 title=tmpl.title,
                 template_file=tmpl.template_file,
-                custom_html_template=tmpl.custom_html_template,
-                use_default_template=tmpl.use_default_template,
+                custom_html_template=tmpl.custom_html_template or DEFAULT_REPORT_HTML,
+                use_default_template=False,
                 is_default_template=True,
             )
 
@@ -330,21 +423,19 @@ class ReportTemplateView(APIView):
         if "template_file" in request.FILES:
             tmpl.template_file = request.FILES["template_file"]
             tmpl.title = tmpl.template_file.name.split("/")[-1]
-            extracted = extract_text_from_file_field(tmpl.template_file, max_chars=4000)
             tmpl.use_default_template = False
             if hasattr(tmpl, "is_default_template"):
                 tmpl.is_default_template = True
-            tmpl.custom_html_template = _build_html_from_uploaded_template(
-                tmpl.template_file, extracted
-            )
+            # Keep the exact school layout and swap only name, performance, and remarks
+            tmpl.custom_html_template = _get_active_html_for_template(tmpl, request=request)
             uploaded_new_file = True
 
         use_default_flag = request.data.get("use_default_template")
         if str(use_default_flag).lower() == "true" and not uploaded_new_file:
-            tmpl.use_default_template = True
+            tmpl.use_default_template = False
             if hasattr(tmpl, "is_default_template"):
-                tmpl.is_default_template = False
-            tmpl.custom_html_template = DEFAULT_REPORT_HTML
+                tmpl.is_default_template = True
+            tmpl.custom_html_template = _get_active_html_for_template(tmpl, request=request)
         elif str(use_default_flag).lower() == "false":
             tmpl.use_default_template = False
             if hasattr(tmpl, "is_default_template"):
@@ -355,23 +446,25 @@ class ReportTemplateView(APIView):
             "use this template",
             "use uploaded template",
             "default template",
+            "keep exact format",
         }
 
         if ai_instruction and not (uploaded_new_file and is_just_selection_phrase):
-            base_html = _get_active_html_for_template(tmpl)
+            base_html = _get_active_html_for_template(tmpl, request=request)
             system_instruction = (
-                "You are a report card layout assistant for SmartAcademic. "
-                "Update the HTML report card template according to the teacher's instructions while "
-                "preserving all placeholders: {{student_name}}, {{class_name}}, {{term}}, {{year}}, "
-                "{{mean_score}}, {{performance_summary}}, {{strengths}}, {{areas_for_improvement}}, "
-                "{{class_teacher_comment}}, {{principal_remark}}. "
+                "You are a report card layout assistant for Ngegu Primary & Junior School. "
+                "Keep the school name (NGEGU PRIMARY & JUNIOR SCHOOL), address (P.O. BOX 345-00900, KIAMBU.), "
+                "motto (HARD WORK PAYS), logo/header, and CBC grading scale intact unless explicitly asked otherwise, "
+                "and preserve all placeholders: {{student_name}}, {{class_name}}, {{term}}, {{year}}, "
+                "{{mean_score}}, {{total_marks}}, {{performance_rows_html}}, {{performance_summary}}, "
+                "{{strengths}}, {{areas_for_improvement}}, {{class_teacher_comment}}, {{principal_remark}}. "
                 "Return ONLY valid HTML with inline styles."
             )
             try:
                 edited = generate_text_response(
                     system_instruction,
                     f"Instruction: {ai_instruction}\n\nCurrent HTML:\n{base_html}",
-                    temperature=0.3,
+                    temperature=0.2,
                 )
                 tmpl.custom_html_template = (
                     edited.replace("```html", "").replace("```", "").strip()
@@ -391,18 +484,18 @@ class ReportTemplateView(APIView):
                 "id": tmpl.id,
                 "title": tmpl.title,
                 "use_default_template": tmpl.use_default_template,
-                "is_default_template": getattr(tmpl, "is_default_template", False),
+                "is_default_template": getattr(tmpl, "is_default_template", True),
                 "template_file_name": (
                     tmpl.template_file.name.split("/")[-1] if tmpl.template_file else None
                 ),
-                "html_template": _get_active_html_for_template(tmpl),
+                "html_template": _get_active_html_for_template(tmpl, request=request),
             },
             status=status.HTTP_200_OK,
         )
 
 
 class GenerateStudentReportFormsView(APIView):
-    """Generates personalized AI report forms from analyzed StudentMark records."""
+    """Generates student report forms preserving the exact school layout and changing only name, performance, and remarks."""
 
     permission_classes = [IsAuthenticated]
 
@@ -428,7 +521,7 @@ class GenerateStudentReportFormsView(APIView):
             grouped[mark.student].append(mark)
 
         tmpl = _resolve_report_template(request.user)
-        active_html = _get_active_html_for_template(tmpl)
+        active_html = _get_active_html_for_template(tmpl, request=request)
 
         system_instruction = (
             "You are an experienced school academic advisor writing individualized report form comments. "
@@ -436,33 +529,56 @@ class GenerateStudentReportFormsView(APIView):
         )
 
         reports = []
-        for student_profile, records in grouped.items():
+        for idx, (student_profile, records) in enumerate(grouped.items()):
             student_name = str(student_profile)
-            subject_lines = [
-                f"{r.get_subject_display()}: {float(r.marks):.1f}%" for r in records
-            ]
-            mean_score = round(sum(float(r.marks) for r in records) / len(records), 1)
+            row_items = []
+            subject_lines = []
+            total_raw = 0.0
+
+            for r in records:
+                score_val = float(r.marks)
+                total_raw += score_val
+                level_code = _cbc_level_for_score(score_val)
+                subject_label = r.get_subject_display()
+                subject_lines.append(f"{subject_label}: {score_val:.1f}% ({level_code})")
+                row_items.append(
+                    f"<tr>"
+                    f"<td style='border:1px solid #222;padding:5px 8px;'>{subject_label}</td>"
+                    f"<td style='border:1px solid #222;padding:5px 8px;'>{score_val:.1f}%</td>"
+                    f"<td style='border:1px solid #222;padding:5px 8px;'>{level_code}</td>"
+                    f"</tr>"
+                )
+
+            mean_score = round(total_raw / len(records), 1)
+            total_marks_text = f"{total_raw:.1f} / {len(records) * 100}"
+            performance_rows_html = "\n".join(row_items)
             summary_text = " | ".join(subject_lines)
 
-            prompt = (
-                f"Student: {student_name}\n"
-                f"Class: {class_name}, {term} {year}\n"
-                f"Mean Score: {mean_score}%\n"
-                f"Subject Performance: {summary_text}"
+            fallback = _fallback_remarks_for_student(
+                student_name, mean_score, term, year, records
             )
-            try:
-                remarks = generate_json_response(
-                    system_instruction, prompt, REPORT_COMMENT_SCHEMA, temperature=0.4
+
+            if idx < MAX_AI_REMARK_CALLS_PER_BATCH:
+                prompt = (
+                    f"Student: {student_name}\n"
+                    f"Class: {class_name}, {term} {year}\n"
+                    f"Mean Score: {mean_score}%\n"
+                    f"Subject Performance: {summary_text}"
                 )
-            except Exception:
-                remarks = {
-                    "class_teacher_comment": (
-                        f"{student_name} recorded a {mean_score}% average across subjects in {term} {year}."
-                    ),
-                    "strengths": "Steady effort across core subjects.",
-                    "areas_for_improvement": "Review weaker subjects and practice past papers consistently.",
-                    "principal_remark": "Keep working diligently toward your academic goals.",
-                }
+                try:
+                    ai_remarks = generate_json_response(
+                        system_instruction, prompt, REPORT_COMMENT_SCHEMA, temperature=0.3
+                    )
+                    remarks = {
+                        "class_teacher_comment": (ai_remarks.get("class_teacher_comment") or fallback["class_teacher_comment"]).strip(),
+                        "strengths": (ai_remarks.get("strengths") or fallback["strengths"]).strip(),
+                        "areas_for_improvement": (ai_remarks.get("areas_for_improvement") or fallback["areas_for_improvement"]).strip(),
+                        "principal_remark": (ai_remarks.get("principal_remark") or fallback["principal_remark"]).strip(),
+                    }
+                except Exception:
+                    remarks = fallback
+            else:
+                remarks = fallback
 
             rendered_html = active_html
             replacements = {
@@ -471,6 +587,8 @@ class GenerateStudentReportFormsView(APIView):
                 "{{term}}": term,
                 "{{year}}": str(year),
                 "{{mean_score}}": str(mean_score),
+                "{{total_marks}}": total_marks_text,
+                "{{performance_rows_html}}": performance_rows_html,
                 "{{performance_summary}}": summary_text,
                 "{{strengths}}": remarks["strengths"],
                 "{{areas_for_improvement}}": remarks["areas_for_improvement"],
@@ -488,6 +606,7 @@ class GenerateStudentReportFormsView(APIView):
                     "term": term,
                     "year": year,
                     "mean_score": mean_score,
+                    "total_marks": total_marks_text,
                     "performance_summary": summary_text,
                     **remarks,
                     "rendered_html": rendered_html,
@@ -1032,13 +1151,20 @@ def get_grade_level(score):
     if score is None:
         return "-"
     if score >= 90:
-        return "EE"
-    elif score >= 70:
-        return "ME"
-    elif score >= 40:
-        return "AE"
-    else:
-        return "BE"
+        return "EE1"
+    if score >= 75:
+        return "EE2"
+    if score >= 58:
+        return "ME1"
+    if score >= 41:
+        return "ME2"
+    if score >= 31:
+        return "AE1"
+    if score >= 21:
+        return "AE2"
+    if score >= 11:
+        return "BE1"
+    return "BE2"
 
 SUBJECT_SHORT = {
     'maths': 'Maths', 'kiswahili': 'Kiswahili', 'english': 'English',
