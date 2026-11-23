@@ -99,6 +99,13 @@ TEMPLATES = [
 # ---------------------------------------------------------------------
 # Database
 # ---------------------------------------------------------------------
+
+db_url = (
+    os.getenv('DATABASE_URL')
+    or os.getenv('DJ_DATABASE_URL')
+    or os.getenv('DJ_DATABASE')
+)
+
 DATABASES = {
     'default': dj_database_url.config(
         default=os.getenv('DJ_DATABASE_URL'),
