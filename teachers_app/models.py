@@ -72,44 +72,48 @@ class TeacherAttendance(models.Model):
 
 
 class StudentMark(models.Model):
-    GRADE_CHOICES = [
-        ('Grade 7', 'Grade 7'),
-        ('Grade 8', 'Grade 8'),
-        ('Grade 9', 'Grade 9'),
+    TERM_CHOICES = [
+        ("Term 1", "Term 1"),
+        ("Term 2", "Term 2"),
+        ("Term 3", "Term 3"),
     ]
 
-    TERM_CHOICES = [
-        ('Term 1', 'Term 1'),
-        ('Term 2', 'Term 2'),
-        ('Term 3', 'Term 3'),
+    EXAM_CHOICES = [
+        ("Opener", "Opener"),
+        ("Mid Term", "Mid Term"),
+        ("End Term", "End Term"),
     ]
 
     SUBJECT_CHOICES = [
-        ('maths', 'Maths'),
-        ('kiswahili', 'Kiswahili'),
-        ('english', 'English'),
-        ('pretechnical_studies', 'Pre-Technical Studies'),
-        ('integrated_science', 'Integrated Science'),
-        ('social_studies', 'Social Studies'),
-        ('cre', 'CRE'),
-        ('arts', 'Arts'),
-        ('agriculture', 'Agriculture'),
+        ("maths", "Maths"),
+        ("kiswahili", "Kiswahili"),
+        ("english", "English"),
+        ("pretechnical_studies", "Pre-Technical Studies"),
+        ("integrated_science", "Integrated Science"),
+        ("social_studies", "Social Studies"),
+        ("cre", "CRE"),
+        ("arts", "Arts"),
+        ("agriculture", "Agriculture"),
     ]
 
-    student = models.ForeignKey(StudentProfile, on_delete=models.CASCADE, related_name='marks')
+    student = models.ForeignKey(StudentProfile, on_delete=models.CASCADE, related_name="marks")
     subject = models.CharField(max_length=50, choices=SUBJECT_CHOICES)
     marks = models.DecimalField(max_digits=5, decimal_places=2, default=0.00)
-    term = models.CharField(max_length=20, choices=TERM_CHOICES, default='Term 1')
+    term = models.CharField(max_length=20, choices=TERM_CHOICES, default="Term 1")
     year = models.IntegerField(default=2026)
-    class_name = models.CharField(max_length=50, choices=GRADE_CHOICES)
+    exam_type = models.CharField(max_length=30, choices=EXAM_CHOICES, default="End Term", db_index=True)
+    class_name = models.CharField(max_length=100)
     teacher = models.ForeignKey(Teacher, on_delete=models.SET_NULL, null=True, blank=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        unique_together = ('student', 'subject', 'term', 'year', 'class_name')
+        unique_together = ("student", "subject", "term", "year", "exam_type", "class_name")
 
     def __str__(self):
-        return f"{self.student} - {self.subject}: {self.marks} ({self.class_name}, {self.term} {self.year})"
+        return (
+            f"{self.student} - {self.subject}: {self.marks} "
+            f"({self.class_name}, {self.term} {self.year} - {self.exam_type})"
+        )
 
 
 class ReportFormTemplate(models.Model):

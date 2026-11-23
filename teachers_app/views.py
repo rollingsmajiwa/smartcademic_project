@@ -1467,99 +1467,85 @@ class ClassGradeTableView(APIView):
     permission_classes = [IsAuthenticated, IsTeacherOrStaff]
 
     def get(self, request, class_name, term):
-        try:
-            raw_exam = request.GET.get("exam")
-            if callable(globals().get("parse_exam_type")):
-                exam = parse_exam_type(raw_exam)
-                if exam is None:
-                    err_msg = globals().get("EXAM_ERROR", "Invalid or missing exam type.")
-                    return Response({"error": err_msg}, status=status.HTTP_400_BAD_REQUEST)
+        raw_exam = request.GET.get("exam")
+        if callable(globals().get("parse_exam_type")):
+            exam = parse_exam_type(raw_exam)
+            if exam is None:
+                err_msg = globals().get("EXAM_ERROR", "Invalid or missing exam type.")
+                return Response({"error": err_msg}, status=status.HTTP_400_BAD_REQUEST)
+        else:
+            exam = str(raw_exam or "").strip()
+            if not exam:
+                return Response({"error": "Invalid or missing exam type."}, status=status.HTTP_400_BAD_REQUEST)
+
+        raw_year = request.GET.get("year")
+        if raw_year not in (None, ""):
+            try:
+                year = int(raw_year)
+            except (TypeError, ValueError):
+                return Response({"error": "Invalid year."}, status=status.HTTP_400_BAD_REQUEST)
+        elif callable(globals().get("get_academic_year")):
+            year = get_academic_year()
+        else:
+            year = timezone.now().year
+
+        cleaned_class = str(class_name or "").strip()
+        cleaned_term = str(term or "").strip()
+
+        students = (
+            StudentProfile.objects.filter(classroom__name=cleaned_class)
+            .select_related("user")
+            .order_by("admission_number")
+        )
+
+        subject_keys = list(
+            globals().get("SUBJECT_KEYS")
+            or [key for key, _ in StudentMark.SUBJECT_CHOICES]
+        )
+
+        saved = defaultdict(dict)
+        marks_qs = StudentMark.objects.filter(
+            student__in=students,
+            class_name=cleaned_class,
+            term=cleaned_term,
+            year=year,
+            exam_type=exam,
+        )
+        for mark in marks_qs:
+            if mark.marks is not None:
+                saved[mark.student_id][mark.subject] = float(mark.marks)
+
+        display_name_fn = globals().get("_student_display_name")
+        table = []
+        for s in students:
+            if callable(display_name_fn):
+                student_name = display_name_fn(s)
             else:
-                exam = str(raw_exam or "").strip()
-                if not exam:
-                    return Response({"error": "Invalid or missing exam type."}, status=status.HTTP_400_BAD_REQUEST)
+                full_name = s.user.get_full_name().strip() if getattr(s, "user", None) else ""
+                student_name = full_name or getattr(getattr(s, "user", None), "username", "") or str(s)
 
-            raw_year = request.GET.get("year")
-            if raw_year not in (None, ""):
-                try:
-                    year = int(raw_year)
-                except (TypeError, ValueError):
-                    return Response({"error": "Invalid year."}, status=status.HTTP_400_BAD_REQUEST)
-            elif callable(globals().get("get_academic_year")):
-                year = get_academic_year()
-            else:
-                year = timezone.now().year
-
-            cleaned_class = str(class_name or "").strip()
-            cleaned_term = str(term or "").strip()
-
-            students = (
-                StudentProfile.objects.filter(classroom__name=cleaned_class)
-                .select_related("user")
-                .order_by("admission_number")
-            )
-
-            subject_keys = list(globals().get("SUBJECT_KEYS") or [
-                "mathematics",
-                "english",
-                "kiswahili",
-                "integrated_science",
-                "social_studies",
-                "pre_technical_studies",
-                "agriculture",
-                "creative_arts_and_sports",
-                "religious_education",
-            ])
-
-            saved = defaultdict(dict)
-            marks_qs = StudentMark.objects.filter(
-                student__in=students,
-                class_name=cleaned_class,
-                term=cleaned_term,
-                year=year,
-                exam_type=exam,
-            )
-            for mark in marks_qs:
-                if mark.marks is not None:
-                    saved[mark.student_id][mark.subject] = float(mark.marks)
-
-            display_name_fn = globals().get("_student_display_name")
-            table = []
-            for s in students:
-                if callable(display_name_fn):
-                    student_name = display_name_fn(s)
-                else:
-                    full_name = s.user.get_full_name().strip() if getattr(s, "user", None) else ""
-                    student_name = full_name or getattr(getattr(s, "user", None), "username", "") or str(s)
-
-                table.append({
+            table.append(
+                {
                     "student_id": s.id,
                     "admission_number": s.admission_number,
                     "student_name": student_name,
                     "marks": {key: saved[s.id].get(key) for key in subject_keys},
-                })
+                }
+            )
 
-            return Response(
-                {
-                    "class_name": cleaned_class,
-                    "term": cleaned_term,
-                    "year": year,
-                    "exam_type": exam,
-                    "exam_types": globals().get("EXAM_TYPES", ["Opener", "Mid Term", "End Term"]),
-                    "subjects": globals().get("GRID_SUBJECTS", subject_keys),
-                    "students_table": table,
-                },
-                status=status.HTTP_200_OK,
-            )
-        except Exception as exc:
-            return Response(
-                {
-                    "error": str(exc),
-                    "type": type(exc).__name__,
-                    "trace": traceback.format_exc().splitlines()[-6:],
-                },
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
+        return Response(
+            {
+                "class_name": cleaned_class,
+                "term": cleaned_term,
+                "year": year,
+                "exam_type": exam,
+                "exam_types": globals().get("EXAM_TYPES", ["Opener", "Mid Term", "End Term"]),
+                "subjects": globals().get("GRID_SUBJECTS", subject_keys),
+                "students_table": table,
+            },
+            status=status.HTTP_200_OK,
+        )
+
 
 class BulkMarkSaveView(APIView):
     permission_classes = [IsAuthenticated, IsTeacherOrStaff]
@@ -1567,19 +1553,28 @@ class BulkMarkSaveView(APIView):
     def post(self, request):
         class_name = str(request.data.get("class_name") or "").strip()
         term = str(request.data.get("term") or "").strip()
-        exam = parse_exam_type(request.data.get("exam_type"))
+        exam = (
+            parse_exam_type(request.data.get("exam_type"))
+            if callable(globals().get("parse_exam_type"))
+            else str(request.data.get("exam_type") or "").strip()
+        )
         entries = request.data.get("entries") or []
         if not class_name or not term:
             return Response({"error": "class_name and term are required."}, status=status.HTTP_400_BAD_REQUEST)
-        if exam is None:
-            return Response({"error": EXAM_ERROR}, status=status.HTTP_400_BAD_REQUEST)
+        if not exam:
+            err_msg = globals().get("EXAM_ERROR", "Invalid or missing exam type.")
+            return Response({"error": err_msg}, status=status.HTTP_400_BAD_REQUEST)
         if not isinstance(entries, list):
             return Response({"error": "entries must be a list."}, status=status.HTTP_400_BAD_REQUEST)
 
-        year = get_academic_year()
-        teacher = _get_teacher(request.user)
+        year = get_academic_year() if callable(globals().get("get_academic_year")) else timezone.now().year
+        teacher = _get_teacher(request.user) if callable(globals().get("_get_teacher")) else None
         class_student_ids = set(
             StudentProfile.objects.filter(classroom__name=class_name).values_list("id", flat=True)
+        )
+        subject_keys = list(
+            globals().get("SUBJECT_KEYS")
+            or [key for key, _ in StudentMark.SUBJECT_CHOICES]
         )
         saved, skipped = 0, []
 
@@ -1589,7 +1584,7 @@ class BulkMarkSaveView(APIView):
                     continue
                 raw = entry.get("marks")
                 if raw is None or raw == "":
-                    continue  # blank = nothing to save
+                    continue
                 subject = entry.get("subject")
                 try:
                     student_id = int(entry.get("student_id"))
@@ -1597,7 +1592,7 @@ class BulkMarkSaveView(APIView):
                 except (TypeError, ValueError, InvalidOperation):
                     skipped.append(f"Invalid entry for student {entry.get('student_id')}")
                     continue
-                if subject not in SUBJECT_KEYS:
+                if subject not in subject_keys:
                     skipped.append(f"Unknown subject '{subject}'")
                     continue
                 if student_id not in class_student_ids:
@@ -1607,8 +1602,12 @@ class BulkMarkSaveView(APIView):
                     skipped.append(f"Marks must be between 0 and 100 (student {student_id}, {subject})")
                     continue
                 StudentMark.objects.update_or_create(
-                    student_id=student_id, subject=subject, class_name=class_name, term=term,
-                    year=year, exam_type=exam,
+                    student_id=student_id,
+                    subject=subject,
+                    class_name=class_name,
+                    term=term,
+                    year=year,
+                    exam_type=exam,
                     defaults={"marks": value, "teacher": teacher},
                 )
                 saved += 1
@@ -1623,53 +1622,87 @@ class BulkMarkSaveView(APIView):
 
 class ClassAnalysisView(APIView):
     permission_classes = [IsAuthenticated, IsTeacherOrStaff]
-    SUBJECTS = SUBJECT_KEYS
 
     def get(self, request, class_name, term):
-        exam = parse_exam_type(request.GET.get("exam"))
-        if exam is None:
-            return Response({"error": EXAM_ERROR}, status=status.HTTP_400_BAD_REQUEST)
-        year = get_academic_year()
-        subjects = self.SUBJECTS
-        marks_qs = StudentMark.objects.filter(class_name=class_name, term=term, year=year, exam_type=exam)
+        raw_exam = request.GET.get("exam")
+        if callable(globals().get("parse_exam_type")):
+            exam = parse_exam_type(raw_exam)
+            if exam is None:
+                err_msg = globals().get("EXAM_ERROR", "Invalid or missing exam type.")
+                return Response({"error": err_msg}, status=status.HTTP_400_BAD_REQUEST)
+        else:
+            exam = str(raw_exam or "").strip()
+            if not exam:
+                return Response({"error": "Invalid or missing exam type."}, status=status.HTTP_400_BAD_REQUEST)
+
+        year = get_academic_year() if callable(globals().get("get_academic_year")) else timezone.now().year
+        subjects = list(
+            globals().get("SUBJECT_KEYS")
+            or [key for key, _ in StudentMark.SUBJECT_CHOICES]
+        )
+        marks_qs = StudentMark.objects.filter(
+            class_name=class_name,
+            term=term,
+            year=year,
+            exam_type=exam,
+        )
         export = request.GET.get("export")
 
         empty = {
-            "class_name": class_name, "term": term, "year": year, "exam_type": exam,
-            "subject_columns": subjects, "student_performance_table": [], "subject_means": {},
-            "total_class_mean": 0.0, "level_distribution": {"EE": 0, "ME": 0, "AE": 0, "BE": 0},
+            "class_name": class_name,
+            "term": term,
+            "year": year,
+            "exam_type": exam,
+            "subject_columns": subjects,
+            "student_performance_table": [],
+            "subject_means": {},
+            "total_class_mean": 0.0,
+            "level_distribution": {"EE": 0, "ME": 0, "AE": 0, "BE": 0},
         }
         if not marks_qs.exists():
             if export:
-                return Response({"detail": "No marks saved for this class, term and exam yet."},
-                                status=status.HTTP_404_NOT_FOUND)
+                return Response(
+                    {"detail": "No marks saved for this class, term and exam yet."},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
             return Response(empty, status=status.HTTP_200_OK)
 
-        # Keyed by student id so two learners with the same name are never merged
+        display_name_fn = globals().get("_student_display_name")
         students_data = {}
         for record in marks_qs.select_related("student", "student__user"):
-            if record.subject not in subjects:
+            if record.subject not in subjects or record.marks is None:
                 continue
             sid = record.student_id
             if sid not in students_data:
+                if callable(display_name_fn):
+                    student_name = display_name_fn(record.student)
+                else:
+                    full_name = record.student.user.get_full_name().strip() if getattr(record.student, "user", None) else ""
+                    student_name = full_name or getattr(getattr(record.student, "user", None), "username", "") or str(record.student)
                 students_data[sid] = {
                     "admission_number": record.student.admission_number,
-                    "name": _student_display_name(record.student),
+                    "name": student_name,
                     "subjects": {sub: {"score": None, "level": "-"} for sub in subjects},
                     "total_marks": 0.0,
                 }
             score = float(record.marks)
-            students_data[sid]["subjects"][record.subject] = {"score": score, "level": get_grade_level(score)}
+            level = get_grade_level(score) if callable(globals().get("get_grade_level")) else "-"
+            students_data[sid]["subjects"][record.subject] = {"score": score, "level": level}
             students_data[sid]["total_marks"] += score
 
         student_list = sorted(students_data.values(), key=lambda x: x["total_marks"], reverse=True)
-        for student, rank in zip(student_list, competition_ranks([s["total_marks"] for s in student_list])):
+        totals = [s["total_marks"] for s in student_list]
+        if callable(globals().get("competition_ranks")):
+            ranks = competition_ranks(totals)
+        else:
+            ranks = list(range(1, len(student_list) + 1))
+        for student, rank in zip(student_list, ranks):
             student["rank"] = rank
 
         subject_means = {}
         for sub in subjects:
             avg = marks_qs.filter(subject=sub).aggregate(Avg("marks"))["marks__avg"]
-            subject_means[sub] = round(float(avg), 2) if avg else 0.0
+            subject_means[sub] = round(float(avg), 2) if avg is not None else 0.0
 
         total_class_mean = (
             round(sum(s["total_marks"] for s in student_list) / len(student_list), 2) if student_list else 0.0
@@ -1677,33 +1710,56 @@ class ClassAnalysisView(APIView):
         distribution = {"EE": 0, "ME": 0, "AE": 0, "BE": 0}
         for student in student_list:
             for data in student["subjects"].values():
-                if data["level"] != "-":
-                    distribution[data["level"][:2]] += 1
+                if data["level"] != "-" and len(data["level"]) >= 2:
+                    prefix = data["level"][:2]
+                    if prefix in distribution:
+                        distribution[prefix] += 1
 
         if export == "pdf":
-            return self.export_to_pdf(student_list, subjects, subject_means, total_class_mean,
-                                      class_name, term, year, exam)
+            return self.export_to_pdf(
+                student_list, subjects, subject_means, total_class_mean, class_name, term, year, exam
+            )
 
-        return Response({
-            "class_name": class_name, "term": term, "year": year, "exam_type": exam,
-            "subject_columns": subjects, "student_performance_table": student_list,
-            "subject_means": subject_means, "total_class_mean": total_class_mean,
-            "level_distribution": distribution,
-        }, status=status.HTTP_200_OK)
+        return Response(
+            {
+                "class_name": class_name,
+                "term": term,
+                "year": year,
+                "exam_type": exam,
+                "subject_columns": subjects,
+                "student_performance_table": student_list,
+                "subject_means": subject_means,
+                "total_class_mean": total_class_mean,
+                "level_distribution": distribution,
+            },
+            status=status.HTTP_200_OK,
+        )
 
     def export_to_pdf(self, student_list, subjects, subject_means, total_class_mean, class_name, term, year, exam):
+        subject_short = globals().get("SUBJECT_SHORT") or {}
         buffer = BytesIO()
-        doc = SimpleDocTemplate(buffer, pagesize=landscape(A4),
-                                leftMargin=24, rightMargin=24, topMargin=24, bottomMargin=24)
+        doc = SimpleDocTemplate(
+            buffer,
+            pagesize=landscape(A4),
+            leftMargin=24,
+            rightMargin=24,
+            topMargin=24,
+            bottomMargin=24,
+        )
         styles = getSampleStyleSheet()
         elements = [
-            Paragraph(f"Class Performance Report: {escape(class_name)}, {escape(term)} {year} ({escape(exam)})",
-                      styles["Title"]),
-            Paragraph(f"Students: {len(student_list)} &nbsp;&nbsp; Class mean: {total_class_mean}", styles["Normal"]),
+            Paragraph(
+                f"Class Performance Report: {escape(class_name)}, {escape(term)} {year} ({escape(exam)})",
+                styles["Title"],
+            ),
+            Paragraph(
+                f"Students: {len(student_list)} &nbsp;&nbsp; Class mean: {total_class_mean}",
+                styles["Normal"],
+            ),
             Spacer(1, 12),
         ]
 
-        data = [["Rank", "Adm No", "Student"] + [SUBJECT_SHORT.get(s, s) for s in subjects] + ["Total"]]
+        data = [["Rank", "Adm No", "Student"] + [subject_short.get(s, s) for s in subjects] + ["Total"]]
         for s in student_list:
             row = [s["rank"], s["admission_number"], s["name"]]
             for sub in subjects:
@@ -1714,21 +1770,29 @@ class ClassAnalysisView(APIView):
         data.append(["", "", "Subject mean"] + [f"{subject_means.get(sub, 0):g}" for sub in subjects] + [""])
 
         table = Table(data, colWidths=[32, 55, 130] + [56] * len(subjects) + [50], repeatRows=1)
-        table.setStyle(TableStyle([
-            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#10002b")),
-            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-            ("FONTSIZE", (0, 0), (-1, -1), 8),
-            ("ALIGN", (3, 0), (-1, -1), "CENTER"),
-            ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#999999")),
-            ("ROWBACKGROUNDS", (0, 1), (-1, -2), [colors.white, colors.HexColor("#f5ecff")]),
-            ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#e0c3fc")),
-            ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
-        ]))
+        table.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#10002b")),
+                    ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                    ("FONTSIZE", (0, 0), (-1, -1), 8),
+                    ("ALIGN", (3, 0), (-1, -1), "CENTER"),
+                    ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#999999")),
+                    ("ROWBACKGROUNDS", (0, 1), (-1, -2), [colors.white, colors.HexColor("#f5ecff")]),
+                    ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#e0c3fc")),
+                    ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
+                ]
+            )
+        )
         elements += [
-            table, Spacer(1, 10),
-            Paragraph("Levels: EE1 90-99, EE2 75-89, ME1 58-74, ME2 41-57, AE1 31-40, AE2 21-30, "
-                      "BE1 11-20, BE2 1-10.", styles["Normal"]),
+            table,
+            Spacer(1, 10),
+            Paragraph(
+                "Levels: EE1 90-99, EE2 75-89, ME1 58-74, ME2 41-57, AE1 31-40, AE2 21-30, "
+                "BE1 11-20, BE2 1-10.",
+                styles["Normal"],
+            ),
         ]
         doc.build(elements)
 
@@ -1742,6 +1806,5 @@ class ClassListView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        # Resolve the Classroom model from StudentProfile.classroom so no import name is guessed
         Classroom = StudentProfile._meta.get_field("classroom").related_model
         return Response([{"id": c.id, "name": c.name} for c in Classroom.objects.all().order_by("name")])
