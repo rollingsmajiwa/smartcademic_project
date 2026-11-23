@@ -34,6 +34,7 @@ pydantic_core==2.50.4
 PyJWT==2.15.1
 pypdf==7.0.1
 python-dateutil==4.0.0
+python-docx==1.2.0
 python-dotenv==1.2.4
 python-pptx==1.0.2
 reportlab==5.1.0
