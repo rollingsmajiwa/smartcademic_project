@@ -1459,38 +1459,107 @@ class GeoFenceAttendanceView(APIView):
 # =============================================================================
 # MARKS ENTRY, ANALYSIS, PDF EXPORT
 # =============================================================================
+import traceback
+
+import traceback
+
 class ClassGradeTableView(APIView):
     permission_classes = [IsAuthenticated, IsTeacherOrStaff]
 
     def get(self, request, class_name, term):
-        exam = parse_exam_type(request.GET.get("exam"))
-        if exam is None:
-            return Response({"error": EXAM_ERROR}, status=status.HTTP_400_BAD_REQUEST)
-        year = get_academic_year()
-        students = (
-            StudentProfile.objects.filter(classroom__name=class_name)
-            .select_related("user")
-            .order_by("admission_number")
-        )
-        saved = defaultdict(dict)
-        for mark in StudentMark.objects.filter(
-            student__in=students, class_name=class_name, term=term, year=year, exam_type=exam
-        ):
-            saved[mark.student_id][mark.subject] = float(mark.marks)
+        try:
+            raw_exam = request.GET.get("exam")
+            if callable(globals().get("parse_exam_type")):
+                exam = parse_exam_type(raw_exam)
+                if exam is None:
+                    err_msg = globals().get("EXAM_ERROR", "Invalid or missing exam type.")
+                    return Response({"error": err_msg}, status=status.HTTP_400_BAD_REQUEST)
+            else:
+                exam = str(raw_exam or "").strip()
+                if not exam:
+                    return Response({"error": "Invalid or missing exam type."}, status=status.HTTP_400_BAD_REQUEST)
 
-        table = [{
-            "student_id": s.id,
-            "admission_number": s.admission_number,
-            "student_name": _student_display_name(s),
-            # None = not entered yet (shows as an empty box, never saved as 0)
-            "marks": {key: saved[s.id].get(key) for key in SUBJECT_KEYS},
-        } for s in students]
+            raw_year = request.GET.get("year")
+            if raw_year not in (None, ""):
+                try:
+                    year = int(raw_year)
+                except (TypeError, ValueError):
+                    return Response({"error": "Invalid year."}, status=status.HTTP_400_BAD_REQUEST)
+            elif callable(globals().get("get_academic_year")):
+                year = get_academic_year()
+            else:
+                year = timezone.now().year
 
-        return Response({
-            "class_name": class_name, "term": term, "year": year, "exam_type": exam,
-            "exam_types": EXAM_TYPES, "subjects": GRID_SUBJECTS, "students_table": table,
-        }, status=status.HTTP_200_OK)
+            cleaned_class = str(class_name or "").strip()
+            cleaned_term = str(term or "").strip()
 
+            students = (
+                StudentProfile.objects.filter(classroom__name=cleaned_class)
+                .select_related("user")
+                .order_by("admission_number")
+            )
+
+            subject_keys = list(globals().get("SUBJECT_KEYS") or [
+                "mathematics",
+                "english",
+                "kiswahili",
+                "integrated_science",
+                "social_studies",
+                "pre_technical_studies",
+                "agriculture",
+                "creative_arts_and_sports",
+                "religious_education",
+            ])
+
+            saved = defaultdict(dict)
+            marks_qs = StudentMark.objects.filter(
+                student__in=students,
+                class_name=cleaned_class,
+                term=cleaned_term,
+                year=year,
+                exam_type=exam,
+            )
+            for mark in marks_qs:
+                if mark.marks is not None:
+                    saved[mark.student_id][mark.subject] = float(mark.marks)
+
+            display_name_fn = globals().get("_student_display_name")
+            table = []
+            for s in students:
+                if callable(display_name_fn):
+                    student_name = display_name_fn(s)
+                else:
+                    full_name = s.user.get_full_name().strip() if getattr(s, "user", None) else ""
+                    student_name = full_name or getattr(getattr(s, "user", None), "username", "") or str(s)
+
+                table.append({
+                    "student_id": s.id,
+                    "admission_number": s.admission_number,
+                    "student_name": student_name,
+                    "marks": {key: saved[s.id].get(key) for key in subject_keys},
+                })
+
+            return Response(
+                {
+                    "class_name": cleaned_class,
+                    "term": cleaned_term,
+                    "year": year,
+                    "exam_type": exam,
+                    "exam_types": globals().get("EXAM_TYPES", ["Opener", "Mid Term", "End Term"]),
+                    "subjects": globals().get("GRID_SUBJECTS", subject_keys),
+                    "students_table": table,
+                },
+                status=status.HTTP_200_OK,
+            )
+        except Exception as exc:
+            return Response(
+                {
+                    "error": str(exc),
+                    "type": type(exc).__name__,
+                    "trace": traceback.format_exc().splitlines()[-6:],
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
 class BulkMarkSaveView(APIView):
     permission_classes = [IsAuthenticated, IsTeacherOrStaff]
