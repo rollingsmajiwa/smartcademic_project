@@ -7,6 +7,7 @@ from .views import (
     BulkMarkSaveView, TeacherOverviewAPIView, TeacherListView,
     TeacherRevisionsView, ClassListView,
     AISuggestMarkView, ReportTemplateView, GenerateStudentReportFormsView,
+    MarkingSchemeUploadView
 )
 
 urlpatterns = [
@@ -44,4 +45,5 @@ urlpatterns = [
 
     path('list/', TeacherListView.as_view(), name='teacher-list'),
     path('classes/', ClassListView.as_view(), name='teacher-class-list'),
+    path("marking-scheme/", MarkingSchemeUploadView.as_view(), name='marking-scheme'),
 ]

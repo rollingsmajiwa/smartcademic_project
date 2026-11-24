@@ -32,6 +32,8 @@ class Assignment_post(models.Model):
     file = models.FileField(upload_to='assignment/')
     deadline = models.DateTimeField()
     created_at = models.DateTimeField(auto_now_add=True)
+    marking_scheme_file = models.FileField(upload_to="marking_schemes/", blank=True, null=True)
+    marking_scheme_text = models.TextField(blank=True, default="")
 
     def __str__(self):
         return f"Assignment: {self.title} by {self.teacher.user.username}"
@@ -46,6 +48,8 @@ class Exam_post(models.Model):
     start_time = models.DateTimeField()
     end_time = models.DateTimeField()
     created_at = models.DateTimeField(auto_now_add=True)
+    marking_scheme_file = models.FileField(upload_to="marking_schemes/", blank=True, null=True)
+    marking_scheme_text = models.TextField(blank=True, default="")
 
     def __str__(self):
         return f"Exam: {self.title} ({self.duration_mins} mins)"
