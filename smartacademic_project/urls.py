@@ -37,10 +37,12 @@ urlpatterns = [
     path('api/students/', include('student_app.urls')),
     path('api/teachers/', include('teachers_app.urls')),
     path('api/admin/', include('admin_app.urls')),
+    path("api/parents/", include("parents_app.urls")),
     path('api-token-auth', obtain_auth_token),
     # SimpleJWT endpoints
     path('api/token/', CustomTokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+    
     
 
 ]

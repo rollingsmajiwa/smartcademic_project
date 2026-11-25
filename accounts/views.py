@@ -4,7 +4,7 @@ Authentication views for SmartAcademic.
 Sections:
 0. Roles and permissions
 1. Shared helpers (responses, tokens, OTP, ID generators, admin approval, email)
-2. Teacher & admin login (email + OTP)
+2. Teacher, admin & parent login (email + OTP)
 3. Student registration & login (admission number + password)
 4. Admin invitations (single & bulk), account activation & admin reminders
 5. Email + password login
@@ -36,7 +36,7 @@ from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from admin_app.models import StudentProfile, TeacherProfile
+from admin_app.models import ParentProfile, StudentProfile, TeacherProfile
 
 from .models import UserProfile
 from .serializers import AdminUserManagementSerializer
@@ -57,9 +57,12 @@ RESEND_FROM_EMAIL = getattr(
 ADMIN = "admin"
 TEACHER = "teacher"
 STUDENT = "student"
+PARENT = "parent"
 
-ALL_ROLES = frozenset({ADMIN, TEACHER, STUDENT})
-STAFF_ROLES = frozenset({ADMIN, TEACHER})  # roles allowed through OTP / Google login
+ALL_ROLES = frozenset({ADMIN, TEACHER, STUDENT, PARENT})
+# Roles allowed through OTP / Google login (parents included so they can sign in
+# with a one-time code or Google, not only email + password).
+STAFF_ROLES = frozenset({ADMIN, TEACHER, PARENT})
 RESTRICTED_ROLES = frozenset({STUDENT, TEACHER})  # require admin update after activation
 
 ADMIN_APPROVAL_REQUIRED_MSG = (
@@ -74,7 +77,7 @@ def get_user_role(user) -> Optional[str]:
     Priority:
     1. Superuser                               -> admin
     2. UserProfile.role (a valid role)         -> that role   (source of truth)
-    3. A TeacherProfile / StudentProfile       -> teacher / student
+    3. TeacherProfile / StudentProfile / ParentProfile -> teacher / student / parent
     4. is_staff, only when nothing else is known -> admin
     """
     if user is None or not getattr(user, "pk", None):
@@ -91,6 +94,8 @@ def get_user_role(user) -> Optional[str]:
         return TEACHER
     if StudentProfile.objects.filter(user=user).exists():
         return STUDENT
+    if ParentProfile.objects.filter(user=user).exists():
+        return PARENT
 
     if user.is_staff:
         return ADMIN
@@ -123,6 +128,10 @@ class IsTeacherRole(HasRole):
 
 class IsStudentRole(HasRole):
     allowed_roles = frozenset({STUDENT})
+
+
+class IsParentRole(HasRole):
+    allowed_roles = frozenset({PARENT})
 
 
 class IsTeacherOrAdminRole(HasRole):
@@ -243,6 +252,10 @@ def attach_role_profiles(user, role, is_admin_approved: Optional[bool] = None):
         if not student_profile.admission_number or not str(student_profile.admission_number).strip():
             student_profile.admission_number = generate_admission_number()
             student_profile.save(update_fields=["admission_number"])
+    elif role == PARENT:
+        # Without a ParentProfile the parent never appears in Manage Parents
+        # and the parent portal has no children to show.
+        ParentProfile.objects.get_or_create(user=user)
 
 
 def has_admin_approval(user) -> bool:
@@ -299,7 +312,7 @@ def notify_admins_of_activation(user, role: str):
 
 
 def staff_session(user, message):
-    """Shared tail of the OTP and Google flows: admin/teacher only."""
+    """Shared tail of the OTP and Google flows: admin, teacher and parent."""
     if not user.is_active:
         return error("Account is inactive.", status.HTTP_403_FORBIDDEN)
 
@@ -368,7 +381,7 @@ def check_otp(email: str, code) -> bool:
 
 
 # =============================================================================
-# 2. TEACHER & ADMIN AUTHENTICATION (Email + OTP)
+# 2. TEACHER, ADMIN & PARENT AUTHENTICATION (Email + OTP)
 # =============================================================================
 class SendUniversalOTPView(PublicAPIView):
     throttle_scope = "otp_send"
@@ -764,6 +777,11 @@ class SetPasswordView(PublicAPIView):
             if requires_admin_update:
                 profile.is_admin_approved = False
                 profile.save(update_fields=["is_admin_approved"])
+
+            # Safety net: a parent activated before the ParentProfile fix still
+            # gets one, so they appear in Manage Parents.
+            if role == PARENT:
+                ParentProfile.objects.get_or_create(user=user)
 
         if requires_admin_update:
             notify_admins_of_activation(user, role)
