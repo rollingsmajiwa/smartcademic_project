@@ -42,7 +42,9 @@ def _multiple_children_response(request, message):
         status=status.HTTP_200_OK,
     )
 
+import logging
 
+logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Parent (read-only) views
 # ---------------------------------------------------------------------------
@@ -63,14 +65,20 @@ class ParentMeView(APIView):
         if not parent_profile:
             raise PermissionDenied("Parent profile not found.")
 
-        serializer = ParentProfileDetailSerializer(
-            parent_profile,
-            data=request.data,
-            partial=True,
-        )
-        serializer.is_valid(raise_exception=True)
-        serializer.save()
-        return Response(serializer.data, status=status.HTTP_200_OK)
+        try:
+            serializer = ParentProfileDetailSerializer(
+                parent_profile,
+                data=request.data,
+                partial=True,
+            )
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        except Exception:
+            logger.exception("Error updating parent profile for user %s", request.user.pk)
+            raise
+
+    
 
 class ParentChildrenListView(APIView):
     permission_classes = [IsParentReadOnly]
