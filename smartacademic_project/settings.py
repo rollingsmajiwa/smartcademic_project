@@ -179,6 +179,11 @@ GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
 GEMINI_PROJECT_NAME = os.getenv('GEMINI_PROJECT_NAME')
 GEMINI_PROJECT_NUMBER = os.getenv('GEMINI_PROJECT_NUMBER')
 
+WHATSAPP_ACCESS_TOKEN = os.getenv('WHATSAPP_ACCESS_TOKEN')
+WHATSAPP_MESSAGING_ACCOUNT_ID = os.getenv('WHATSAPP_MESSAGING_ACCOUNT_ID')
+WHATSAPP_VERIFY_TOKEN = os.getenv('WHATSAPP_VERIFY_TOKEN')
+
+
 # ---------------------------------------------------------------------
 # Email
 # ---------------------------------------------------------------------

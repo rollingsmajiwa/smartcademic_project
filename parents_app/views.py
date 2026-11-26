@@ -1,11 +1,15 @@
 from collections import defaultdict
 from decimal import Decimal, ROUND_HALF_UP
+import logging
 
+from django.conf import settings
 from django.db.models import Q
+from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
 from rest_framework import serializers, status
 from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.generics import ListAPIView
+from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -28,6 +32,8 @@ from .serializers import (
     ParentStudentMarkSerializer,
 )
 
+logger = logging.getLogger(__name__)
+
 # Which exam counts as the "final" mark for a subject (highest priority first).
 EXAM_PRIORITY = ["End Term", "Mid Term", "Opener"]
 
@@ -42,9 +48,96 @@ def _multiple_children_response(request, message):
         status=status.HTTP_200_OK,
     )
 
-import logging
 
-logger = logging.getLogger(__name__)
+def build_report_card_data(child, term=None, year=None):
+    base_qs = StudentMark.objects.filter(student=child).order_by("-year", "-id")
+    if not base_qs.exists():
+        return {
+            "child": ParentChildSerializer(child).data,
+            "term": term,
+            "year": year,
+            "subjects": [],
+            "summary": {
+                "subject_count": 0,
+                "total_marks": "0.00",
+                "average_marks": "0.00",
+            },
+        }
+
+    latest = base_qs.first()
+    selected_term = (term or latest.term).strip()
+    if year is not None and year != "":
+        try:
+            selected_year = int(str(year).strip())
+        except ValueError:
+            raise NotFound("Invalid year parameter.")
+    else:
+        selected_year = latest.year
+
+    marks_qs = StudentMark.objects.filter(
+        student=child,
+        term__iexact=selected_term,
+        year=selected_year,
+    ).order_by("subject", "exam_type")
+
+    grouped = {}
+    for entry in marks_qs:
+        row = grouped.setdefault(
+            entry.subject,
+            {
+                "subject_code": entry.subject,
+                "subject": entry.get_subject_display(),
+                "class_name": entry.class_name,
+                "exams": {},
+            },
+        )
+        row["class_name"] = entry.class_name
+        row["exams"][entry.exam_type] = str(entry.marks)
+
+    subjects_list = []
+    total = Decimal("0.00")
+    for item in grouped.values():
+        final = next(
+            (
+                Decimal(item["exams"][key])
+                for key in EXAM_PRIORITY
+                if key in item["exams"]
+            ),
+            Decimal("0.00"),
+        )
+        total += final
+        subjects_list.append(
+            {
+                "subject_code": item["subject_code"],
+                "subject": item["subject"],
+                "class_name": item["class_name"],
+                "exams": item["exams"],
+                "marks": str(final),
+            }
+        )
+
+    count = len(subjects_list)
+    average = (
+        (total / Decimal(count)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        if count
+        else Decimal("0.00")
+    )
+
+    return {
+        "child": ParentChildSerializer(child).data,
+        "term": selected_term,
+        "year": selected_year,
+        "subjects": subjects_list,
+        "summary": {
+            "subject_count": count,
+            "total_marks": str(
+                total.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            ),
+            "average_marks": str(average),
+        },
+    }
+
+
 # ---------------------------------------------------------------------------
 # Parent (read-only) views
 # ---------------------------------------------------------------------------
@@ -78,7 +171,6 @@ class ParentMeView(APIView):
             logger.exception("Error updating parent profile for user %s", request.user.pk)
             raise
 
-    
 
 class ParentChildrenListView(APIView):
     permission_classes = [IsParentReadOnly]
@@ -188,100 +280,12 @@ class ParentReportCardView(APIView):
                 "Multiple children linked. Pass ?student_id=<id> to view a report card.",
             )
 
-        base_qs = StudentMark.objects.filter(student=child).order_by("-year", "-id")
-        if not base_qs.exists():
-            return Response(
-                {
-                    "child": ParentChildSerializer(child).data,
-                    "term": request.query_params.get("term"),
-                    "year": request.query_params.get("year"),
-                    "subjects": [],
-                    "summary": {
-                        "subject_count": 0,
-                        "total_marks": "0.00",
-                        "average_marks": "0.00",
-                    },
-                },
-                status=status.HTTP_200_OK,
-            )
-
-        latest = base_qs.first()
-        selected_term = (request.query_params.get("term") or latest.term).strip()
-        raw_year = request.query_params.get("year")
-        if raw_year:
-            try:
-                selected_year = int(raw_year.strip())
-            except ValueError:
-                raise NotFound("Invalid year parameter.")
-        else:
-            selected_year = latest.year
-
-        marks_qs = StudentMark.objects.filter(
-            student=child,
-            term__iexact=selected_term,
-            year=selected_year,
-        ).order_by("subject", "exam_type")
-
-        grouped = {}
-        for entry in marks_qs:
-            row = grouped.setdefault(
-                entry.subject,
-                {
-                    "subject_code": entry.subject,
-                    "subject": entry.get_subject_display(),
-                    "class_name": entry.class_name,
-                    "exams": {},
-                },
-            )
-            row["class_name"] = entry.class_name
-            row["exams"][entry.exam_type] = str(entry.marks)
-
-        subjects_list = []
-        total = Decimal("0.00")
-        for item in grouped.values():
-            # Final mark = End Term, else Mid Term, else Opener.
-            final = next(
-                (
-                    Decimal(item["exams"][key])
-                    for key in EXAM_PRIORITY
-                    if key in item["exams"]
-                ),
-                Decimal("0.00"),
-            )
-            total += final
-            subjects_list.append(
-                {
-                    "subject_code": item["subject_code"],
-                    "subject": item["subject"],
-                    "class_name": item["class_name"],
-                    "exams": item["exams"],
-                    "marks": str(final),
-                }
-            )
-
-        count = len(subjects_list)
-        average = (
-            (total / Decimal(count)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-            if count
-            else Decimal("0.00")
+        payload = build_report_card_data(
+            child,
+            term=request.query_params.get("term"),
+            year=request.query_params.get("year"),
         )
-
-        return Response(
-            {
-                "child": ParentChildSerializer(child).data,
-                "term": selected_term,
-                "year": selected_year,
-                "subjects": subjects_list,
-                "summary": {
-                    "subject_count": count,
-                    "total_marks": str(
-                        total.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-                    ),
-                    "average_marks": str(average),
-                },
-            },
-            status=status.HTTP_200_OK,
-        )
+        return Response(payload, status=status.HTTP_200_OK)
 
 
 # ---------------------------------------------------------------------------
@@ -374,9 +378,9 @@ class AdminStudentSearchView(ListAPIView):
 class AdminParentChildrenView(APIView):
     """
     POST /api/parents/admin/<parent_profile_id>/children/
-      - "add":    link additional StudentProfile records
-      - "remove": unlink specified StudentProfile records
-      - "set":    replace linked children (empty list clears all)
+- "add":    link additional StudentProfile records
+- "remove": unlink specified StudentProfile records
+- "set":    replace linked children (empty list clears all)
     """
 
     permission_classes = [IsAdminUserOrStaff]
@@ -441,3 +445,41 @@ class AdminParentChildrenView(APIView):
             },
             status=status.HTTP_200_OK,
         )
+
+
+# ---------------------------------------------------------------------------
+# WhatsApp Cloud API Webhook
+# ---------------------------------------------------------------------------
+class WhatsAppWebhookView(APIView):
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def get(self, request):
+        mode = request.query_params.get("hub.mode")
+        token = request.query_params.get("hub.verify_token")
+        challenge = request.query_params.get("hub.challenge")
+        expected_token = getattr(settings, "WHATSAPP_VERIFY_TOKEN", "")
+
+        if mode == "subscribe" and expected_token and token == expected_token:
+            return HttpResponse(challenge or "", status=200)
+        return Response({"detail": "Invalid verify token."}, status=status.HTTP_403_FORBIDDEN)
+
+    def post(self, request):
+        from .whatsapp import build_whatsapp_reply, send_whatsapp_text
+
+        data = request.data if isinstance(request.data, dict) else {}
+        replies = []
+
+        for entry in data.get("entry", []):
+            for change in entry.get("changes", []):
+                value = change.get("value", {})
+                for msg in value.get("messages", []):
+                    if msg.get("type") != "text":
+                        continue
+                    sender = msg.get("from", "")
+                    body = (msg.get("text") or {}).get("body", "")
+                    reply_text = build_whatsapp_reply(sender, body)
+                    send_result = send_whatsapp_text(sender, reply_text)
+                    replies.append({"to": sender, "send_result": send_result})
+
+        return Response({"status": "ok", "replies": replies}, status=status.HTTP_200_OK)

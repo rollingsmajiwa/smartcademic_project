@@ -9,6 +9,7 @@ from .views import (
     ParentMeView,
     ParentReportCardView,
     ParentSubmissionsView,
+    WhatsAppWebhookView,
 )
 
 urlpatterns = [
@@ -24,4 +25,5 @@ urlpatterns = [
         AdminParentChildrenView.as_view(),
         name="admin-parent-children",
     ),
+    path("whatsapp/webhook/", WhatsAppWebhookView.as_view(), name="parent-whatsapp-webhook"),
 ]
