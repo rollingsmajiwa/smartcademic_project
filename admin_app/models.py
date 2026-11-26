@@ -1,6 +1,44 @@
 from django.db import models
 from django.contrib.auth.models import User
 from django.utils import timezone
+import re
+from django.db import models
+
+# for parents
+def normalize_phone_number(raw_phone: str | None) -> str:
+    if not raw_phone:
+        return ""
+    digits = re.sub(r"\D", "", str(raw_phone))
+    if not digits:
+        return ""
+    if digits.startswith("0") and len(digits) == 10:
+        return "254" + digits[1:]
+    if len(digits) == 9 and digits.startswith(("7", "1")):
+        return "254" + digits
+    return digits
+
+
+class ParentProfile(models.Model):
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='parent_profile')
+    phone_number = models.CharField(max_length=20, blank=True, db_index=True)
+    children = models.ManyToManyField(
+        'admin_app.StudentProfile',
+        related_name='parents',
+        blank=True,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    @property
+    def full_name(self) -> str:
+        return self.user.get_full_name().strip() or self.user.username
+
+    def save(self, *args, **kwargs):
+        if self.phone_number:
+            self.phone_number = normalize_phone_number(self.phone_number)
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.full_name} (Parent)"
 
 
 class Classroom(models.Model):
@@ -65,15 +103,3 @@ class TeacherProfile(models.Model):
         return f"{self.user.first_name} {self.surname or ''} {self.user.last_name} - TSC: {self.tsc_number}"
 
 
-class ParentProfile(models.Model):
-    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='parent_profile')
-    phone_number = models.CharField(max_length=20, blank=True)
-    children = models.ManyToManyField(
-        'admin_app.StudentProfile',
-        related_name='parents',
-        blank=True,
-    )
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    def __str__(self):
-        return f"{self.user.get_full_name() or self.user.username} (Parent)"

@@ -86,7 +86,9 @@ class ParentExamSubmissionSerializer(serializers.ModelSerializer):
 
 class ParentProfileDetailSerializer(serializers.ModelSerializer):
     username = serializers.CharField(source="user.username", read_only=True)
-    full_name = serializers.SerializerMethodField()
+    email = serializers.EmailField(source="user.email", read_only=True)
+    full_name = serializers.CharField(required=False, allow_blank=True)
+    phone_number = serializers.CharField(required=False, allow_blank=True)
     children = ParentChildSerializer(many=True, read_only=True)
 
     class Meta:
@@ -94,10 +96,30 @@ class ParentProfileDetailSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "username",
+            "email",
             "full_name",
             "phone_number",
             "children",
         ]
 
-    def get_full_name(self, obj):
-        return obj.user.get_full_name() or obj.user.username
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        data["full_name"] = instance.user.get_full_name().strip() or instance.user.username
+        return data
+
+    def validate_phone_number(self, value):
+        return normalize_phone_number(value)
+
+    def update(self, instance, validated_data):
+        full_name = validated_data.pop("full_name", None)
+        if full_name is not None:
+            cleaned = " ".join(full_name.strip().split())
+            parts = cleaned.split(" ", 1)
+            instance.user.first_name = parts[0] if parts and parts[0] else ""
+            instance.user.last_name = parts[1] if len(parts) > 1 else ""
+            instance.user.save(update_fields=["first_name", "last_name"])
+
+        if "phone_number" in validated_data:
+            instance.phone_number = normalize_phone_number(validated_data["phone_number"])
+
+        return super().update(instance, validated_data)

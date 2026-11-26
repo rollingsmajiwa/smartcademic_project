@@ -15,6 +15,7 @@ from teachers_app.models import StudentMark
 
 from .permissions import (
     IsAdminUserOrStaff,
+    IsParentProfileOwner,
     IsParentReadOnly,
     get_linked_children,
     resolve_child_for_parent,
@@ -46,7 +47,7 @@ def _multiple_children_response(request, message):
 # Parent (read-only) views
 # ---------------------------------------------------------------------------
 class ParentMeView(APIView):
-    permission_classes = [IsParentReadOnly]
+    permission_classes = [IsParentProfileOwner]
 
     def get(self, request):
         parent_profile = getattr(request.user, "parent_profile", None)
@@ -57,6 +58,19 @@ class ParentMeView(APIView):
             status=status.HTTP_200_OK,
         )
 
+    def patch(self, request):
+        parent_profile = getattr(request.user, "parent_profile", None)
+        if not parent_profile:
+            raise PermissionDenied("Parent profile not found.")
+
+        serializer = ParentProfileDetailSerializer(
+            parent_profile,
+            data=request.data,
+            partial=True,
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
 class ParentChildrenListView(APIView):
     permission_classes = [IsParentReadOnly]

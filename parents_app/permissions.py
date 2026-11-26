@@ -69,3 +69,14 @@ def resolve_child_for_parent(user, student_id=None):
     if children.count() == 1:
         return children.first()
     return None
+
+class IsParentProfileOwner(permissions.BasePermission):
+    """Allows authenticated parent users to read and update their own profile."""
+
+    message = "Only parent accounts can manage this parent profile."
+
+    def has_permission(self, request, view):
+        user = request.user
+        if not (user and user.is_authenticated and user.is_active):
+            return False
+        return get_user_role(user) == PARENT or hasattr(user, "parent_profile")
