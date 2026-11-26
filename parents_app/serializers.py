@@ -5,6 +5,17 @@ from student_app.models import AssignmentSubmission, ExamSubmission
 from teachers_app.models import StudentMark
 
 import re
+def normalize_phone_number(raw_phone):
+    if not raw_phone:
+        return ""
+    digits = re.sub(r"\D", "", str(raw_phone))
+    if not digits:
+        return ""
+    if digits.startswith("0") and len(digits) == 10:
+        return "254" + digits[1:]
+    if len(digits) == 9 and digits.startswith(("7", "1")):
+        return "254" + digits
+    return digits
     
 
 
@@ -130,14 +141,6 @@ class ParentProfileDetailSerializer(serializers.ModelSerializer):
    
 
 
-    def normalize_phone_number(raw_phone):
-        if not raw_phone:
-            return ""
-        digits = re.sub(r"\D", "", str(raw_phone))
-        if not digits:
-            return ""
-        if digits.startswith("0") and len(digits) == 10:
-            return "254" + digits[1:]
-        if len(digits) == 9 and digits.startswith(("7", "1")):
-            return "254" + digits
-        return digits
+    
+
+   
